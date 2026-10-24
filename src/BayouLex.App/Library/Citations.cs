@@ -279,7 +279,7 @@ public static partial class Citations
     [GeneratedRegex(@"\b(?:La\.?\s*)?Const(?:itution|\.)?(?:\s+of\s+1974)?\s*,?\s*[Aa]rt(?:icle|\.)?\s*(?<article>[IVXL]+|\d+)\s*,?\s*(?:§|[Ss]ec(?:tion|\.))\s*(?<section>\d+(?:\.\d+)?)")]
     private static partial Regex ConstitutionRegex();
 
-    [GeneratedRegex(@"\bArticle\s+(?<article>[IVXL]+)\s*,\s*Section\s+(?<section>\d+(?:\.\d+)?)(?=\s+of\s+(?:the\s+)?(?:Louisiana\s+)?Constitution)")]
+    [GeneratedRegex(@"\bArticle\s+(?<article>[IVXL]+)\s*,\s*Section\s+(?<section>\d+(?:\.\d+)?)(?:\([A-Za-z0-9]+\))*(?=\s+of\s+(?:the\s+)?(?:Louisiana\s+)?Constitution)")]
     private static partial Regex ConstitutionArticleSectionRegex();
 
     [GeneratedRegex(@"\b[Aa]rticles?\s+(?<list>" + NumberList + @")(?!\s+of\s+(?:the|this)\s+(?:Constitution|Code\s+of|Louisiana))")]

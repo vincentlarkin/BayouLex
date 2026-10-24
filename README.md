@@ -5,8 +5,7 @@ API-first Louisiana legal research compendium.
 ![BayouLex brand image](assets/branding/bayoulex-brand.png)
 
 Source TOC: https://www.legis.la.gov/legis/LawsContents.aspx
-Official Supreme Court opinions archive: https://www.lasc.org/CourtActions/2026
-Pre-2000 Supreme Court year index: https://law.justia.com/cases/louisiana/supreme-court/
+Supreme Court opinions (all years): https://law.justia.com/cases/louisiana/supreme-court/
 
 ## What This Repo Produces
 
@@ -66,8 +65,11 @@ For the plain-English API/client flow, see [docs/QUICKSTART.md](docs/QUICKSTART.
   - Default category: `revised-statutes`.
 - `scripts/download_louisiana_case_law.py`
   - Downloads Louisiana Supreme Court opinions.
-  - Uses the official Louisiana Supreme Court archive for `2000+`.
-  - Uses Justia for older Supreme Court years exposed there (`1950-1999` plus `1885`).
+  - Uses Justia for every year it exposes (`1950`-present plus `1885`). lasc.org moved to a
+    Blazor app that can't be read without a browser.
+  - Justia rate-limits: requests are throttled (`--request-interval`), 429s back off, and years
+    that fail are skipped and listed so a later re-run fills them in. Treat this step as
+    "download later" if it stops early; the compendium keeps going without it.
   - Saves yearly bundles, local opinion PDFs when available, and extracted full text for indexing.
 - `scripts/download_louisiana_bills.py`
   - Downloads bill metadata and printable bill histories from the official Louisiana Legislature session records.
@@ -205,7 +207,7 @@ Additional indexed source after running the bills downloader:
 Notes:
 
 - The Louisiana Constitution is already supported by `scripts\download_louisiana_laws.py` via `--categories louisiana-constitution`.
-- Supreme Court decisions are sourced from the official Louisiana Supreme Court archive for `2000+` and from Justia for the older years that Justia exposes.
+- Supreme Court decisions are sourced from Justia for every year (see the case-law script notes above).
 
 ## Repo Hygiene
 

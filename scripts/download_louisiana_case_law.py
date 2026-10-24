@@ -1,13 +1,18 @@
 r"""
-Download Louisiana Supreme Court opinions from the official Louisiana Supreme Court
-website and save local PDFs plus extracted text/metadata for indexing.
+Download Louisiana Supreme Court opinions and save extracted text/metadata for indexing.
 
-Source archive: https://www.lasc.org/CourtActions/<year>
+Source: Justia's Louisiana Supreme Court archive (https://law.justia.com/cases/louisiana/supreme-court/<year>/),
+1950-present plus 1885. The official lasc.org archive moved to a Blazor app that only renders over a
+live browser connection, so it can no longer be read with plain HTTP; Justia carries the same opinions.
+
+Justia rate-limits aggressive clients, so every request goes through one shared throttle and 429
+responses back off and retry. A year whose index cannot be fetched is skipped (existing files are left
+alone) and picked up again on the next run.
 
 Examples:
-  python scripts\download_louisiana_case_law.py
-  python scripts\download_louisiana_case_law.py --years 2024-2026
-  python scripts\download_louisiana_case_law.py --years 2025 --workers 8
+  python scripts/download_louisiana_case_law.py
+  python scripts/download_louisiana_case_law.py --years 2020-2026
+  python scripts/download_louisiana_case_law.py --years 1995 --max-cases-per-year 5
 """
 
 from __future__ import annotations
@@ -28,15 +33,12 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs, urljoin, urlparse
 
-import requests
 from bs4 import BeautifulSoup, Tag
 
 
-BASE = "https://www.lasc.org"
 JUSTIA_BASE = "https://law.justia.com"
 CATEGORY_KEY = "louisiana-supreme-court-decisions"
 CATEGORY_NAME = "Louisiana Supreme Court Decisions"
-OFFICIAL_ARCHIVE_MIN_YEAR = 2000
 JUSTIA_EARLIEST_YEAR = 1950
 JUSTIA_EXTRA_YEARS = {1885}
 _REQUEST_HEADERS = {
@@ -49,10 +51,6 @@ _REQUEST_HEADERS = {
 
 _INVALID_PATH_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1F]')
 _WS = re.compile(r"\s+")
-_LEAD_CITATION_RE = re.compile(
-    r"^(?P<citation>\d{4}\s*-\s*[A-Z/]{1,6}\s*-\s*[A-Z0-9 ]*\d{1,5})\s+(?P<title>.+)$",
-    re.IGNORECASE,
-)
 _PDF_CHAR_REPLACEMENTS = {
     "\u00a0": " ",
     "\u00ad": "",
@@ -179,28 +177,10 @@ def _normalize_ws(value: str) -> str:
     return _WS.sub(" ", (value or "").replace("\xa0", " ")).strip()
 
 
-def _new_session() -> requests.Session:
-    session = requests.Session()
-    session.headers.update(_REQUEST_HEADERS)
-    return session
-
-
 def _supported_archive_years(current_year: int) -> list[int]:
     years = set(JUSTIA_EXTRA_YEARS)
     years.update(range(JUSTIA_EARLIEST_YEAR, current_year + 1))
     return sorted(years)
-
-
-def _is_justia_year(year: int) -> bool:
-    return year in JUSTIA_EXTRA_YEARS or JUSTIA_EARLIEST_YEAR <= year < OFFICIAL_ARCHIVE_MIN_YEAR
-
-
-def _year_source(year: int) -> str:
-    return "justia" if _is_justia_year(year) else "lasc"
-
-
-def _year_release_url(year: int) -> str:
-    return f"{BASE}/CourtActions/{year}"
 
 
 def _justia_year_url(year: int) -> str:
@@ -232,51 +212,12 @@ def _parse_years(raw: str) -> list[int]:
 
     years = sorted(y for y in out if y in supported_year_set)
     if not years:
-        available = f"{JUSTIA_EARLIEST_YEAR}-{OFFICIAL_ARCHIVE_MIN_YEAR - 1} plus {OFFICIAL_ARCHIVE_MIN_YEAR}-{current_year}"
+        available = f"{JUSTIA_EARLIEST_YEAR}-{current_year}"
         extras = ", ".join(str(year) for year in sorted(JUSTIA_EXTRA_YEARS))
         raise SystemExit(
             f"No valid years requested. Available Supreme Court years are {available}, with additional Justia coverage for {extras}."
         )
     return years
-
-
-def _pubdate_to_iso(raw: str) -> str:
-    value = _normalize_ws(raw)
-    if not value:
-        return ""
-    for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
-        try:
-            return datetime.strptime(value, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    return value
-
-
-def _citation_from_anchor_text(raw_text: str) -> tuple[str, str]:
-    raw_text = _normalize_ws(raw_text)
-    if not raw_text:
-        return "", ""
-    match = _LEAD_CITATION_RE.match(raw_text)
-    if not match:
-        return "", raw_text
-    citation = _normalize_ws(match.group("citation"))
-    citation = re.sub(r"\s*-\s*", "-", citation)
-    citation = re.sub(r"(?<=-)\s+(?=\d)", "", citation)
-    return citation.upper(), _normalize_ws(match.group("title"))
-
-
-def _opinion_doc_id(release_code: str, pdf_url: str) -> str:
-    stem = Path(urlparse(pdf_url).path).stem
-    return safe_name(f"{release_code}__{stem}", max_len=180)
-
-
-def _normalize_pdf_href(href: str) -> str:
-    value = _normalize_ws(href)
-    if not value:
-        return ""
-    value = re.sub(r"^htto://", "https://", value, flags=re.IGNORECASE)
-    value = re.sub(r"^http://", "https://", value, flags=re.IGNORECASE)
-    return urljoin(BASE, value)
 
 
 def _new_justia_scraper():
@@ -309,206 +250,63 @@ def _reset_justia_scraper():
     return scraper
 
 
+class _Throttle:
+    """One request at a time per interval, shared by every worker thread."""
+
+    def __init__(self) -> None:
+        self.interval_s = 1.0
+        self._lock = threading.Lock()
+        self._next_at = 0.0
+
+    def wait(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            delay = self._next_at - now
+            if delay > 0:
+                time.sleep(delay)
+            self._next_at = max(now, self._next_at) + self.interval_s
+
+    def pause(self, seconds: float) -> None:
+        """Push every thread's next request back (after a 429)."""
+        with self._lock:
+            self._next_at = max(self._next_at, time.monotonic() + seconds)
+
+
+_THROTTLE = _Throttle()
+_MAX_RATE_LIMIT_RETRIES = 6
+
+
+def _retry_after_seconds(response, attempt: int) -> float:
+    raw = (response.headers.get("Retry-After") or "").strip()
+    if raw.isdigit():
+        return min(float(raw), 900.0)
+    return min(30.0 * (2 ** attempt), 600.0)
+
+
 def _justia_get(url: str, *, timeout_s: float):
-    last_response = None
-    for attempt in range(3):
+    """GET from Justia: throttled, retries 403 with a fresh session and 429 with backoff."""
+    response = None
+    for attempt in range(_MAX_RATE_LIMIT_RETRIES):
+        _THROTTLE.wait()
         scraper = _get_justia_scraper() if attempt == 0 else _reset_justia_scraper()
         response = scraper.get(url, timeout=timeout_s)
-        last_response = response
-        if response.status_code != 403:
-            return response
-        time.sleep(1.5 * (attempt + 1))
-    if last_response is not None:
-        last_response.raise_for_status()
+        if response.status_code == 429:
+            wait_s = _retry_after_seconds(response, attempt)
+            _THROTTLE.pause(wait_s)
+            time.sleep(wait_s)
+            continue
+        if response.status_code == 403:
+            time.sleep(1.5 * (attempt + 1))
+            continue
+        return response
+    if response is not None:
+        response.raise_for_status()
     raise RuntimeError(f"Justia request failed without a response: {url}")
 
 
 def _justia_case_doc_id(year: int, case_url: str) -> str:
     stem = Path(urlparse(case_url).path).stem
     return safe_name(f"{year}__{stem}", max_len=180)
-
-
-def _paragraph_text(tag: Tag) -> str:
-    return _normalize_ws(tag.get_text(" ", strip=True))
-
-
-def _author_heading_text(text: str) -> str:
-    normalized = _normalize_ws(text)
-    if not normalized:
-        return ""
-    if re.match(r"^(BY\s+.+|PER CURIAM):$", normalized, re.IGNORECASE):
-        return normalized.rstrip(":")
-    return ""
-
-
-def _parse_release_entries(
-    *,
-    release_url: str,
-    release_code: str,
-    release_date: str,
-    inner_html: str,
-) -> list[dict[str, str]]:
-    outer = BeautifulSoup(inner_html, "html.parser")
-    main = outer.find(id="mainbodycontent") or outer
-    nrbody = main.find(class_="nrbody") or main
-
-    entries: list[dict[str, str]] = []
-    current_author = ""
-    last_entry: Optional[dict[str, str]] = None
-
-    for child in nrbody.find_all(["h1", "h2", "h3", "p"]):
-        text = _paragraph_text(child)
-        if not text:
-            continue
-
-        author_heading = _author_heading_text(text)
-        if author_heading:
-            current_author = author_heading
-            continue
-
-        candidate_link: Optional[Tag] = None
-        candidate_citation = ""
-        candidate_title = ""
-        for pdf_link in child.find_all("a", href=True):
-            href = pdf_link["href"]
-            if not href.lower().endswith(".pdf"):
-                continue
-            anchor_text = _normalize_ws(pdf_link.get_text(" ", strip=True))
-            citation, title = _citation_from_anchor_text(anchor_text)
-            if citation:
-                candidate_link = pdf_link
-                candidate_citation = citation
-                candidate_title = title
-                break
-
-        if candidate_link is None:
-            if last_entry is not None:
-                existing = last_entry.get("notes", "")
-                last_entry["notes"] = f"{existing}\n{text}".strip() if existing else text
-            continue
-
-        anchor_text = _normalize_ws(candidate_link.get_text(" ", strip=True))
-        citation = candidate_citation
-        title = candidate_title
-        remainder = text
-        if anchor_text and remainder.startswith(anchor_text):
-            remainder = remainder[len(anchor_text) :].strip()
-        parish = ""
-        disposition = remainder
-        parish_match = re.match(r"^\((?P<parish>[^)]*?)\)\s*(?P<rest>.*)$", remainder)
-        if parish_match:
-            parish = _normalize_ws(parish_match.group("parish"))
-            disposition = _normalize_ws(parish_match.group("rest"))
-
-        pdf_url = _normalize_pdf_href(candidate_link["href"])
-        last_entry = {
-            "doc_id": _opinion_doc_id(release_code, pdf_url),
-            "citation": citation,
-            "title": title,
-            "release_url": release_url,
-            "pdf_url": pdf_url,
-            "release_code": release_code,
-            "release_date": release_date,
-            "author": current_author,
-            "disposition": disposition,
-            "parish": parish,
-            "notes": "",
-        }
-        entries.append(last_entry)
-
-    deduped: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for entry in entries:
-        key = entry["pdf_url"]
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(entry)
-    return deduped
-
-
-def _crawl_year_lasc(
-    session: requests.Session,
-    *,
-    year: int,
-    timeout_s: float,
-    logger: _Logger,
-    max_cases: Optional[int],
-) -> Bundle:
-    court_actions_url = _year_release_url(year)
-    logger.info(f"[crawl] {year}: {court_actions_url}")
-    html_text = session.get(court_actions_url, timeout=timeout_s)
-    html_text.raise_for_status()
-    soup = BeautifulSoup(html_text.text, "html.parser")
-
-    release_urls: list[str] = []
-    seen_release_urls: set[str] = set()
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if not href.startswith("/Opinions?p="):
-            continue
-        url = urljoin(BASE, href)
-        if url in seen_release_urls:
-            continue
-        seen_release_urls.add(url)
-        release_urls.append(url)
-
-    logger.info(f"[crawl] {year}: releases={len(release_urls)}")
-    raw_entries: list[dict[str, str]] = []
-    for release_url in release_urls:
-        release_res = session.get(release_url, timeout=timeout_s)
-        release_res.raise_for_status()
-        release_soup = BeautifulSoup(release_res.text, "html.parser")
-        pubdate_meta = release_soup.find("meta", attrs={"name": "pubdate"})
-        release_date = _pubdate_to_iso(pubdate_meta.get("content", "") if pubdate_meta else "")
-        textarea = release_soup.find("textarea", id="PostContent")
-        if textarea is not None:
-            inner_html = html.unescape(textarea.text)
-        else:
-            mainbody = release_soup.find(id="mainbodycontent")
-            if mainbody is None:
-                logger.warn(f"[crawl] missing PostContent/mainbodycontent on {release_url}")
-                continue
-            inner_html = mainbody.decode()
-        release_code = (parse_qs(urlparse(release_url).query).get("p") or [""])[0]
-        parsed = _parse_release_entries(
-            release_url=release_url,
-            release_code=release_code,
-            release_date=release_date,
-            inner_html=inner_html,
-        )
-        raw_entries.extend(parsed)
-        if max_cases is not None and len(raw_entries) >= max_cases:
-            raw_entries = raw_entries[:max_cases]
-            break
-
-    entries = [
-        OpinionEntry(
-            order=index,
-            doc_id=entry["doc_id"],
-            citation=entry["citation"],
-            title=entry["title"],
-            url=entry["release_url"],
-            release_url=entry["release_url"],
-            pdf_url=entry["pdf_url"],
-            release_code=entry["release_code"],
-            release_date=entry["release_date"],
-            author=entry["author"],
-            disposition=entry["disposition"],
-            parish=entry["parish"],
-            notes=entry["notes"],
-            source_provider="lasc",
-        )
-        for index, entry in enumerate(raw_entries, start=1)
-    ]
-    logger.info(f"[crawl] {year}: cases={len(entries)}")
-    return Bundle(
-        category_key=CATEGORY_KEY,
-        category_name=CATEGORY_NAME,
-        bundle_name=f"{year} Decisions",
-        source_toc_url=court_actions_url,
-        entries=entries,
-    )
 
 
 def _crawl_year_justia(
@@ -570,16 +368,13 @@ def _crawl_year_justia(
 
 
 def _crawl_year(
-    session: requests.Session,
     *,
     year: int,
     timeout_s: float,
     logger: _Logger,
     max_cases: Optional[int],
 ) -> Bundle:
-    if _year_source(year) == "justia":
-        return _crawl_year_justia(year=year, timeout_s=timeout_s, logger=logger, max_cases=max_cases)
-    return _crawl_year_lasc(session, year=year, timeout_s=timeout_s, logger=logger, max_cases=max_cases)
+    return _crawl_year_justia(year=year, timeout_s=timeout_s, logger=logger, max_cases=max_cases)
 
 
 def _extract_text_pymupdf(pdf_path: Path) -> str:
@@ -1031,9 +826,7 @@ def _download_case(
     json_path = sections_dir / f"{entry.doc_id}.json"
     txt_path = sections_dir / f"{entry.doc_id}.txt"
 
-    if entry.source_provider == "justia" and resume and json_path.exists() and txt_path.exists():
-        return "skipped", entry.doc_id
-    if entry.source_provider != "justia" and resume and pdf_path.exists() and json_path.exists() and txt_path.exists():
+    if resume and json_path.exists() and txt_path.exists():
         return "skipped", entry.doc_id
 
     resolved_entry = entry
@@ -1068,13 +861,6 @@ def _download_case(
             local_file_rel = pdf_path.relative_to(out_dir).as_posix()
         else:
             body_text = detail.get("html_text", "")
-    else:
-        if not pdf_path.exists() or pdf_path.stat().st_size <= 0:
-            res = requests.get(entry.pdf_url, timeout=timeout_s, headers=_REQUEST_HEADERS)
-            res.raise_for_status()
-            _atomic_write_bytes(pdf_path, res.content)
-        body_text, extraction_backend = _extract_pdf_text(pdf_path, backend=backend, logger=logger)
-        local_file_rel = pdf_path.relative_to(out_dir).as_posix()
 
     notes = _normalize_ws(resolved_entry.notes)
     doc_text = _build_doc_text(resolved_entry, body_text=body_text, notes=notes)
@@ -1179,7 +965,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--years",
         default="all",
-        help="Years or ranges to crawl (default: all official years, 2000-current). Example: 2024-2026,2020",
+        help="Years or ranges to crawl (default: all, 1950-current plus 1885). Example: 2024-2026,2020",
     )
     parser.add_argument(
         "--resume",
@@ -1187,7 +973,13 @@ def main(argv: list[str] | None = None) -> int:
         default=True,
         help="Skip cases that already have pdf/json/txt output (default: true)",
     )
-    parser.add_argument("--workers", type=int, default=6, help="Concurrent PDF downloads/extractions (default: 6)")
+    parser.add_argument("--workers", type=int, default=4, help="Concurrent case downloads/extractions (default: 4)")
+    parser.add_argument(
+        "--request-interval",
+        type=float,
+        default=1.0,
+        help="Minimum seconds between Justia requests across all workers (default: 1.0)",
+    )
     parser.add_argument("--timeout", type=float, default=30.0, help="HTTP timeout in seconds (default: 30)")
     parser.add_argument(
         "--pdf-backend",
@@ -1218,20 +1010,31 @@ def main(argv: list[str] | None = None) -> int:
         f"timeout={float(args.timeout)}s backend={args.pdf_backend}"
     )
 
-    session = _new_session()
+    _THROTTLE.interval_s = max(0.0, float(args.request_interval))
+    failed_years: list[int] = []
     total_cases = 0
     total_ok = 0
     total_skipped = 0
     total_err = 0
 
     for year in years:
-        bundle = _crawl_year(
-            session,
-            year=year,
-            timeout_s=float(args.timeout),
-            logger=logger,
-            max_cases=args.max_cases_per_year,
-        )
+        try:
+            bundle = _crawl_year(
+                year=year,
+                timeout_s=float(args.timeout),
+                logger=logger,
+                max_cases=args.max_cases_per_year,
+            )
+        except Exception as exc:
+            logger.warn(f"[crawl] {year}: index unavailable ({exc}); skipping, existing files kept")
+            failed_years.append(year)
+            continue
+        if not bundle.entries:
+            # An empty index means a block page or outage, not a year with no opinions;
+            # writing it would prune everything already downloaded for that year.
+            logger.warn(f"[crawl] {year}: index listed no cases; skipping, existing files kept")
+            failed_years.append(year)
+            continue
         bundle_dir = category_dir / safe_name(bundle.bundle_name)
         bundle_dir.mkdir(parents=True, exist_ok=True)
         _write_json(
@@ -1280,7 +1083,9 @@ def main(argv: list[str] | None = None) -> int:
     logger.info(
         f"[done] cases={total_cases} ok={total_ok} skipped={total_skipped} err={total_err}"
     )
-    return 0 if total_err == 0 else 2
+    if failed_years:
+        logger.warn(f"[done] years to retry (re-run to resume): {','.join(str(y) for y in failed_years)}")
+    return 0 if total_err == 0 and not failed_years else 2
 
 
 if __name__ == "__main__":

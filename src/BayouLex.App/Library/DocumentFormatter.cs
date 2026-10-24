@@ -297,6 +297,14 @@ public static partial class DocumentFormatter
                 previousShort = true;
                 continue;
             }
+            // Headers, captions, signature lines ("HOUSE BILL NO. 10", "AN ACT") and "* * *" stand alone.
+            if (IsStandaloneLine(line))
+            {
+                Flush();
+                paragraphs.Add(line);
+                previousShort = true;
+                continue;
+            }
             var startsNew = previousShort || ParagraphStartRegex().IsMatch(line);
             if (startsNew && current.Length > 0 && !char.IsLower(line[0]))
             {
@@ -329,6 +337,10 @@ public static partial class DocumentFormatter
             }
         }
     }
+
+    private static bool IsStandaloneLine(string line)
+        => line == "* * *"
+           || (line.Length <= 70 && line.Any(char.IsLetter) && line == line.ToUpperInvariant());
 
     private static int IndentFor(string line, int previousIndent)
     {

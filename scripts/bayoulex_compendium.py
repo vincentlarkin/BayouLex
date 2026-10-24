@@ -99,6 +99,10 @@ def _require_dotnet_sdk() -> bool:
     return False
 
 
+# Steps that may stop early (rate limits) without blocking the rest of the build.
+OPTIONAL_STEPS = {"Download Louisiana Supreme Court decisions"}
+
+
 def _download_from_source() -> None:
     if not _confirm("Download from official sources and build API data"):
         return
@@ -151,8 +155,13 @@ def _download_from_source() -> None:
         ),
     ]
     for label, command in steps:
-        if not _run(label, command):
-            return
+        if _run(label, command):
+            continue
+        if label in OPTIONAL_STEPS:
+            # Justia rate-limits; whatever downloaded is kept and a re-run resumes the rest.
+            print(f"[later] {label} is incomplete; re-run it later to fill in. Continuing.")
+            continue
+        return
 
 
 def _build_offline_package() -> None:

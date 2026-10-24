@@ -8,6 +8,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using BayouLex.App.Library;
 using BayouLex.App.ViewModels;
 
@@ -134,11 +135,23 @@ public partial class MainWindow : Window, IShell
         {
             _revealing = false;
         }
-        if (ContentsTree.TreeContainerFromItem(item) is Control container)
+        // Once layout has measured the newly expanded rows, center the row so its neighbors show too.
+        Dispatcher.UIThread.Post(() =>
         {
-            // Leave some rows of context above and below rather than pinning it to the edge.
-            container.BringIntoView(new Rect(0, -140, container.Bounds.Width, container.Bounds.Height + 280));
-        }
+            if (ContentsTree.TreeContainerFromItem(item) is not Control container)
+            {
+                return;
+            }
+            var scroller = ContentsTree.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+            var top = scroller?.Content is Visual content ? container.TranslatePoint(new Point(0, 0), content) : null;
+            if (scroller is null || top is null)
+            {
+                container.BringIntoView();
+                return;
+            }
+            var target = top.Value.Y - (scroller.Viewport.Height - container.Bounds.Height) / 2;
+            scroller.Offset = new Vector(scroller.Offset.X, Math.Clamp(target, 0, Math.Max(0, scroller.Extent.Height - scroller.Viewport.Height)));
+        }, DispatcherPriority.Background);
     }, DispatcherPriority.Loaded);
 
     public void CloseWindow() => Close();

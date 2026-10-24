@@ -99,6 +99,8 @@ CATEGORY_ORDER = [
     "Senate Rules",
     "Joint Rules",
 ]
+# Bundles named "<group> - <part>" that read better nested under their group.
+GROUPED_BUNDLE_CATEGORIES = {"Louisiana Legislative Bills"}
 # Year/session bundles read best newest-first.
 NEWEST_FIRST_CATEGORIES = {"Louisiana Legislative Bills", "Louisiana Supreme Court Decisions"}
 
@@ -135,6 +137,11 @@ _SMALL_WORDS = {"a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or
 # RS Title 9 mirrors the Civil Code with "CODE BOOK I", "CODE TITLE V" divisions.
 _CODE_PREFIX_RE = re.compile(r"^CODE\s+(?=(?:BOOK|TITLE|PRELIMINARY)\b)", re.IGNORECASE)
 # Reserved, empty divisions are marked "[BLANK]" / "(BLANK)"; "* * *" marks omitted text.
+# legis.la.gov sometimes wraps a new heading onto the end of the previous one's line:
+# "FOREIGN HEIRS, LEGATEES AND DONEES SECTION 1--OF THE".
+_EMBEDDED_HEADING_RE = re.compile(
+    r"\s+(?=(?:SUBSECTION|SECTION|SUBCHAPTER|CHAPTER|SUBPART|PART|TITLE)\s+[0-9IVXLC]+[A-Z]?\s*(?:--|\.\s))"
+)
 _BLANK_RE = re.compile(r"\s*[\[(]BLANK[\])]\s*", re.IGNORECASE)
 _SECTION_TITLE_RE = re.compile(r"^\s*§\s*[0-9]+(?:\.[0-9]+)?[A-Z]?\.\s+(.+)$")
 
@@ -144,6 +151,7 @@ def _natural_key(value: str) -> list[object]:
 
 
 def _heading_text(raw: str) -> str:
+    raw = re.sub(r"<br\s*/?>", "\n", raw, flags=re.IGNORECASE)
     return html.unescape(re.sub(r"<[^>]+>", "", raw)).replace("\xa0", " ")
 
 
@@ -202,20 +210,24 @@ def _leading_headings(doc_html: str) -> tuple[list[tuple[int, str]], int]:
         if not _CENTERED_RE.search(attrs):
             break
         raw = _heading_text(body)
-        lines += sum(1 for line in raw.splitlines() if line.strip())
-        label = _collapse(_BLANK_RE.sub(" ", raw))
-        if not label or set(label) <= {"*", " "}:
-            continue
-        m = _HEADING_RE.match(_CODE_PREFIX_RE.sub("", label))
-        if m:
-            keyword = (m.group(1) or m.group(2)).upper()
-            headings.append((_RANK_BY_KEYWORD[keyword], label))
-        elif headings:
-            # A bare "BOOK II" gets its name on the next line; anything else just wrapped.
-            rank, prev = headings[-1]
-            bare = _DIVISION_PARTS_RE.match(prev)
-            joiner = " — " if bare and not bare.group(3).strip(" .-—") else " "
-            headings[-1] = (rank, prev + joiner + label)
+        # One paragraph can hold several headings on separate lines ("CHAPTER 9 ..." then "SECTION 1--...").
+        for raw_line in (piece for line in raw.splitlines() for piece in _EMBEDDED_HEADING_RE.split(line)):
+            label = _collapse(_BLANK_RE.sub(" ", raw_line))
+            if not raw_line.strip():
+                continue
+            lines += 1
+            if not label or set(label) <= {"*", " "}:
+                continue
+            m = _HEADING_RE.match(_CODE_PREFIX_RE.sub("", label))
+            if m:
+                keyword = (m.group(1) or m.group(2)).upper()
+                headings.append((_RANK_BY_KEYWORD[keyword], label))
+            elif headings:
+                # A bare "BOOK II" gets its name on the next line; anything else just wrapped.
+                rank, prev = headings[-1]
+                bare = _DIVISION_PARTS_RE.match(prev)
+                joiner = " — " if bare and not bare.group(3).strip(" .-—") else " "
+                headings[-1] = (rank, prev + joiner + label)
     formatted = []
     for rank, label in headings:
         code = _CODE_PREFIX_RE.match(label)
@@ -264,6 +276,29 @@ def _constitution_title(text: str, heading_lines: int) -> str:
     if following and following[0].isupper() and len(following[0]) <= 40:
         return _title_case(following[0])  # e.g. PREAMBLE
     return ""
+
+
+_ACT_TEXT_MARKER = "===== OFFICIAL ACT TEXT ====="
+# Page furniture printed on every page of a legislative instrument PDF.
+_INSTRUMENT_NOISE_RE = re.compile(
+    r"^(?:\d{1,3}"  # line numbers down the margin
+    r"|Page \d+ of \d+"
+    r"|HLS \d{2}[A-Z]{2,3}-\d+"
+    r"|SLS \d{2}[A-Z]{2,3}-\d+"
+    r"|(?:RE)?ENGROSSED|ENROLLED|ORIGINAL"
+    r"|(?:HB|SB|HCR|SCR|HR|SR|HCSR|SCSR) NO\. \d+"
+    r"|CODING: .*|are additions\.)$"
+)
+
+
+def _clean_act_text(text: str) -> str:
+    """Strip margin line numbers and repeated page headers/footers from extracted act text."""
+    index = text.find(_ACT_TEXT_MARKER)
+    if index < 0:
+        return text
+    head, act = text[:index], text[index:]
+    kept = [line for line in act.split("\n") if not _INSTRUMENT_NOISE_RE.match(line.strip())]
+    return head + "\n".join(kept)
 
 
 class _Outline:
@@ -332,6 +367,7 @@ def _schema(con: sqlite3.Connection) -> None:
 
         CREATE INDEX idx_toc_nodes_parent ON toc_nodes(parent_id, sort_order);
         CREATE INDEX idx_documents_toc ON documents(toc_node_id, sort_order);
+        CREATE INDEX idx_documents_reading_order ON documents(category, sort_order);
         CREATE INDEX idx_documents_citation ON documents(citation COLLATE NOCASE);
 
         CREATE INDEX idx_documents_category_bundle ON documents(category, bundle);
@@ -503,20 +539,23 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
 
             doc_sort = 0
             for category in sorted(by_category, key=_category_key):
-                category_bundles = sorted(
-                    by_category[category],
-                    key=lambda item: _natural_key(item[1]),
-                    reverse=category in NEWEST_FIRST_CATEGORIES,
-                )
+                category_bundles = sorted(by_category[category], key=lambda item: _natural_key(item[1]))
+                if category in NEWEST_FIRST_CATEGORIES:
+                    # Newest year/session first, but keep the parts within a session in order.
+                    category_bundles.sort(key=lambda item: _natural_key(item[1].partition(" - ")[0]), reverse=True)
                 category_node = outline.add(None, category, "source", category)
 
                 for bundle_dir, bundle_name, entries in category_bundles:
                     # A flat source (one bundle named like the source) needs no extra level.
-                    bundle_node = (
-                        category_node
-                        if bundle_name == category
-                        else outline.add(category_node, category, "bundle", _bundle_label(bundle_name))
-                    )
+                    if bundle_name == category:
+                        bundle_node = category_node
+                    elif category in GROUPED_BUNDLE_CATEGORIES and " - " in bundle_name:
+                        # "2025 Regular Session - House Bills" -> 2025 Regular Session > House Bills
+                        group, _, leaf = bundle_name.partition(" - ")
+                        group_node = outline.add(category_node, category, "bundle", group)
+                        bundle_node = outline.add(group_node, category, "bundle", leaf)
+                    else:
+                        bundle_node = outline.add(category_node, category, "bundle", _bundle_label(bundle_name))
                     open_divisions: list[tuple[int, int]] = []  # (rank, node id)
 
                     for entry in entries:
@@ -531,6 +570,8 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
                         text = _load_text(meta, txt_path)
                         if not text:
                             continue
+                        if category == "Louisiana Legislative Bills":
+                            text = _clean_act_text(text)
 
                         headings, heading_lines = _leading_headings(str(meta.get("doc_html") or ""))
                         for rank, label in headings:
