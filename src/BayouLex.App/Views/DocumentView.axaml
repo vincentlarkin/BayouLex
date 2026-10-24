@@ -1,0 +1,46 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BayouLex.App.ViewModels"
+             x:Class="BayouLex.App.Views.DocumentView"
+             x:DataType="vm:DocumentTabViewModel">
+  <DockPanel>
+    <!-- Title band -->
+    <Border DockPanel.Dock="Top" Background="{StaticResource PaperBrush}" BorderBrush="{StaticResource GoldBrush}" BorderThickness="0,0,0,2" Padding="28,12,28,12">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" VerticalAlignment="Top" Margin="16,2,0,0" Spacing="4">
+          <Button x:Name="OnlineButton" Classes="link" FontSize="12" Content="View on official site ↗" HorizontalAlignment="Right" />
+          <TextBlock x:Name="BookmarkMark" Text="★ Bookmarked" FontSize="12" Foreground="{StaticResource GoldBrush}" HorizontalAlignment="Right"
+                     IsVisible="{Binding IsBookmarked}" />
+        </StackPanel>
+        <StackPanel Spacing="3">
+          <WrapPanel x:Name="BreadcrumbPanel" />
+          <TextBlock x:Name="CitationText" FontFamily="{StaticResource ReaderFont}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource BayouBrush}" />
+          <SelectableTextBlock x:Name="TitleText" FontFamily="{StaticResource ReaderFont}" FontSize="23" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="{StaticResource InkBrush}" />
+          <WrapPanel x:Name="FactsPanel" Margin="0,4,0,0" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- Previous / next section -->
+    <Border DockPanel.Dock="Bottom" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ShadowBrush}" BorderThickness="0,1,0,0" Padding="6,3">
+      <Grid ColumnDefinitions="*,Auto,*">
+        <Button x:Name="PreviousButton" Grid.Column="0" Classes="tool" HorizontalAlignment="Left" MaxWidth="420" />
+        <Button x:Name="NextButton" Grid.Column="2" Classes="tool" HorizontalAlignment="Right" MaxWidth="420" />
+      </Grid>
+    </Border>
+
+    <!-- The page -->
+    <ScrollViewer x:Name="Scroller" Background="#EFEBE2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <Border x:Name="Page" Background="{StaticResource PaperBrush}" BorderBrush="#CFC8B8" BorderThickness="1,0,1,0"
+              MaxWidth="880" Padding="56,30,56,48" HorizontalAlignment="Stretch">
+        <ItemsControl x:Name="BlocksList">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <VirtualizingStackPanel />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+        </ItemsControl>
+      </Border>
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

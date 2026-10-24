@@ -6,14 +6,20 @@ Output: data/bayoulex-content.sqlite
 
 This is the bridge away from many tiny runtime files. It preserves the existing
 downloaders as ingestion tools while producing one API/client-ready SQLite DB.
+
+It also derives a browsable outline (toc_nodes): Source -> bundle -> the
+BOOK/TITLE/CHAPTER/... headings that the official site prints, centered, at the
+top of the first section of each division.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -77,6 +83,209 @@ def _document_key(category: str, bundle: str, doc_id: str, url: str) -> str:
     return hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()[:24]
 
 
+# Display order for sources in the outline; anything unlisted sorts after these.
+CATEGORY_ORDER = [
+    "Louisiana Constitution",
+    "Constitution Ancillaries",
+    "Civil Code",
+    "Revised Statutes",
+    "Code of Civil Procedure",
+    "Code of Criminal Procedure",
+    "Code of Evidence",
+    "Children's Code",
+    "Louisiana Legislative Bills",
+    "Louisiana Supreme Court Decisions",
+    "House Rules",
+    "Senate Rules",
+    "Joint Rules",
+]
+# Year/session bundles read best newest-first.
+NEWEST_FIRST_CATEGORIES = {"Louisiana Legislative Bills", "Louisiana Supreme Court Decisions"}
+
+# Division headings, highest level first. Same-or-higher rank closes the open division.
+_HEADING_RANKS = [
+    ("BOOK", 1),
+    ("PRELIMINARY TITLE", 2),
+    ("ARTICLE", 2),
+    ("TITLE", 2),
+    ("SUBTITLE", 3),
+    ("CHAPTER", 4),
+    ("SUBCHAPTER", 5),
+    ("PART", 6),
+    ("SUBPART", 7),
+    ("SECTION", 8),
+    ("SUBSECTION", 9),
+    ("§", 10),
+]
+_HEADING_RE = re.compile(
+    r"^(?:(" + "|".join(re.escape(k) for k, _ in _HEADING_RANKS if k != "§") + r")\b|(§)\s*\d)",
+    re.IGNORECASE,
+)
+_RANK_BY_KEYWORD = dict(_HEADING_RANKS)
+_PARA_RE = re.compile(r"<p\b([^>]*)>(.*?)</p>", re.IGNORECASE | re.DOTALL)
+_CENTERED_RE = re.compile(r"""align\s*=\s*["']?center|text-align\s*:\s*center""", re.IGNORECASE)
+_NATURAL_RE = re.compile(r"(\d+)")
+# "CHAPTER 1 - X", "TITLE II -- X", "TITLE VIII--X", "BOOK I. X" -> keyword, number, rest
+_DIVISION_PARTS_RE = re.compile(
+    r"^(PRELIMINARY TITLE|[A-Z]+|§)\s*([0-9]+(?:\.[0-9]+)?(?:-?[A-Z])?|[IVXLC]+(?:-[A-Z])?(?![A-Za-z])|[A-Z](?![A-Za-z]))?\s*(?:\.|-{1,2}|—|:)?\s*(.*)$",
+    re.IGNORECASE,
+)
+_ROMAN_RE = re.compile(r"^[IVXLC]+$")
+_SMALL_WORDS = {"a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to", "upon", "with"}
+# RS Title 9 mirrors the Civil Code with "CODE BOOK I", "CODE TITLE V" divisions.
+_CODE_PREFIX_RE = re.compile(r"^CODE\s+(?=(?:BOOK|TITLE|PRELIMINARY)\b)", re.IGNORECASE)
+# Reserved, empty divisions are marked "[BLANK]" / "(BLANK)"; "* * *" marks omitted text.
+_BLANK_RE = re.compile(r"\s*[\[(]BLANK[\])]\s*", re.IGNORECASE)
+_SECTION_TITLE_RE = re.compile(r"^\s*§\s*[0-9]+(?:\.[0-9]+)?[A-Z]?\.\s+(.+)$")
+
+
+def _natural_key(value: str) -> list[object]:
+    return [int(part) if part.isdigit() else part.lower() for part in _NATURAL_RE.split(value)]
+
+
+def _heading_text(raw: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", raw)).replace("\xa0", " ")
+
+
+def _collapse(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _title_case(text: str) -> str:
+    words = text.split(" ")
+    out = []
+    for i, word in enumerate(words):
+        core = word.strip("(),;:")
+        if _ROMAN_RE.match(core.rstrip(".")) and core.isupper() and len(core.rstrip(".")) > 1:
+            out.append(word)
+        elif i > 0 and core.lower() in _SMALL_WORDS and not out[-1].endswith((".", ":")):
+            out.append(word.lower())
+        else:
+            out.append("-".join(_capitalize(part) for part in word.split("-")))
+    return " ".join(out)
+
+
+def _capitalize(word: str) -> str:
+    """Capitalize the first letter even behind punctuation: '(BETWEEN' -> '(Between'."""
+    lower = word.lower()
+    for i, ch in enumerate(lower):
+        if ch.isalpha():
+            return lower[:i] + ch.upper() + lower[i + 1:]
+    return lower
+
+
+def _format_division(label: str) -> str:
+    """'TITLE VIII--OF MINORS' -> 'Title VIII. Of Minors'."""
+    m = _DIVISION_PARTS_RE.match(label)
+    if not m:
+        return _title_case(label)
+    keyword, number, rest = m.group(1), m.group(2), m.group(3)
+    if not number and keyword.upper() != "PRELIMINARY TITLE":
+        return _title_case(label)  # "TITLE ON SALE AND THE COMMERCIAL LAWS" has no division number
+    head = keyword if keyword == "§" else _title_case(keyword)
+    if number:
+        head = f"{head}{'' if keyword == '§' else ' '}{number}"
+    rest = rest.strip(" .-—")
+    return f"{head}. {_title_case(rest)}" if rest else head
+
+
+def _leading_headings(doc_html: str) -> tuple[list[tuple[int, str]], int]:
+    """
+    Parse the centered heading paragraphs that open a section's HTML.
+
+    Returns ([(rank, label)], line_count) where line_count is how many leading
+    text lines those paragraphs occupy (headings can wrap across lines).
+    """
+    headings: list[tuple[int, str]] = []
+    lines = 0
+    for attrs, body in _PARA_RE.findall(doc_html or ""):
+        if not _CENTERED_RE.search(attrs):
+            break
+        raw = _heading_text(body)
+        lines += sum(1 for line in raw.splitlines() if line.strip())
+        label = _collapse(_BLANK_RE.sub(" ", raw))
+        if not label or set(label) <= {"*", " "}:
+            continue
+        m = _HEADING_RE.match(_CODE_PREFIX_RE.sub("", label))
+        if m:
+            keyword = (m.group(1) or m.group(2)).upper()
+            headings.append((_RANK_BY_KEYWORD[keyword], label))
+        elif headings:
+            # A bare "BOOK II" gets its name on the next line; anything else just wrapped.
+            rank, prev = headings[-1]
+            bare = _DIVISION_PARTS_RE.match(prev)
+            joiner = " — " if bare and not bare.group(3).strip(" .-—") else " "
+            headings[-1] = (rank, prev + joiner + label)
+    formatted = []
+    for rank, label in headings:
+        code = _CODE_PREFIX_RE.match(label)
+        text = _format_division(_CODE_PREFIX_RE.sub("", label))
+        formatted.append((rank, f"Code {text}" if code else text))
+    return formatted, lines
+
+
+def _same_division(label: str, bundle_name: str) -> bool:
+    """'Title 9. Civil Code--Ancillaries' and bundle 'TITLE 9 - Civil Code-Ancillaries' are the same division."""
+    def key(text: str) -> tuple[str, str]:
+        parts = re.split(r"[\s.\-:]+", text.strip().lower(), maxsplit=2)
+        number = parts[1] if len(parts) > 1 else ""
+        if _ROMAN_RE.match(number.upper()):
+            number = str(_roman_to_int(number.upper()))
+        return parts[0], number
+    return key(label) == key(bundle_name)
+
+
+def _roman_to_int(numeral: str) -> int:
+    values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
+    total = 0
+    for i, ch in enumerate(numeral):
+        value = values[ch]
+        total += -value if i + 1 < len(numeral) and values[numeral[i + 1]] > value else value
+    return total
+
+
+def _bundle_label(bundle_name: str) -> str:
+    """'TITLE 9 - Civil Code-Ancillaries' -> 'Title 9. Civil Code-Ancillaries'."""
+    if _HEADING_RE.match(bundle_name):
+        keyword, _, rest = bundle_name.partition(" ")
+        number, _, name = rest.partition(" - ")
+        if number and name:
+            return f"{keyword.title()} {number}. {name}"
+    return bundle_name
+
+
+def _constitution_title(text: str, heading_lines: int) -> str:
+    """Constitution entries are titled 'ARTICLE 1.1.'; the real title is on the '§1.  X' line."""
+    following = [line.strip() for line in text.splitlines()[heading_lines:heading_lines + 3]]
+    for line in following:
+        m = _SECTION_TITLE_RE.match(line)
+        if m:
+            return _collapse(m.group(1)).rstrip(".")
+    if following and following[0].isupper() and len(following[0]) <= 40:
+        return _title_case(following[0])  # e.g. PREAMBLE
+    return ""
+
+
+class _Outline:
+    def __init__(self, con: sqlite3.Connection) -> None:
+        self._con = con
+        self._sort = 0
+        self._existing: dict[tuple[int | None, str], int] = {}
+
+    def add(self, parent_id: int | None, category: str, kind: str, label: str) -> int:
+        # Sections sometimes repeat their division heading; reuse the node instead of duplicating it.
+        key = (parent_id, label.lower())
+        if key in self._existing:
+            return self._existing[key]
+        self._sort += 1
+        cur = self._con.execute(
+            "INSERT INTO toc_nodes(parent_id, category, kind, label, sort_order) VALUES (?, ?, ?, ?, ?)",
+            (parent_id, category, kind, label, self._sort),
+        )
+        self._existing[key] = int(cur.lastrowid)
+        return self._existing[key]
+
+
 def _schema(con: sqlite3.Connection) -> None:
     con.executescript(
         """
@@ -106,8 +315,24 @@ def _schema(con: sqlite3.Connection) -> None:
             url TEXT NOT NULL DEFAULT '',
             local_file TEXT NOT NULL DEFAULT '',
             metadata_json TEXT NOT NULL DEFAULT '{}',
-            source_path TEXT NOT NULL DEFAULT ''
+            source_path TEXT NOT NULL DEFAULT '',
+            toc_node_id INTEGER,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            heading_lines INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE toc_nodes (
+            id INTEGER PRIMARY KEY,
+            parent_id INTEGER REFERENCES toc_nodes(id),
+            category TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            label TEXT NOT NULL,
+            sort_order INTEGER NOT NULL
+        );
+
+        CREATE INDEX idx_toc_nodes_parent ON toc_nodes(parent_id, sort_order);
+        CREATE INDEX idx_documents_toc ON documents(toc_node_id, sort_order);
+        CREATE INDEX idx_documents_citation ON documents(citation COLLATE NOCASE);
 
         CREATE INDEX idx_documents_category_bundle ON documents(category, bundle);
         CREATE INDEX idx_documents_status ON documents(status_label);
@@ -150,6 +375,9 @@ def _insert_document(
     local_file: str = "",
     metadata: dict[str, object] | None = None,
     source_path: str = "",
+    toc_node_id: int | None = None,
+    sort_order: int = 0,
+    heading_lines: int = 0,
 ) -> int:
     key = _document_key(category, bundle_name, doc_id, url)
     cursor = con.execute(
@@ -157,9 +385,9 @@ def _insert_document(
         INSERT OR IGNORE INTO documents(
             document_key, doc_id, category, bundle, session_id, chamber,
             status_group, status_label, citation, title, text, url,
-            local_file, metadata_json, source_path
+            local_file, metadata_json, source_path, toc_node_id, sort_order, heading_lines
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             key,
@@ -177,6 +405,9 @@ def _insert_document(
             local_file,
             json.dumps(metadata or {}, ensure_ascii=False, separators=(",", ":")),
             source_path,
+            toc_node_id,
+            sort_order,
+            heading_lines,
         ),
     )
     return 1 if cursor.rowcount > 0 else 0
@@ -251,53 +482,102 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
             _insert_metadata(con, "built_at_epoch", str(int(time.time())))
             _insert_metadata(con, "source_out_dir", str(out_dir.resolve()))
 
+            bundles: list[tuple[Path, str, str, list[object]]] = []
             for bundle_path in bundle_paths:
-                bundle_dir = bundle_path.parent
                 bundle = _read_json(bundle_path)
                 category = str(bundle.get("category_name") or "").strip()
-                bundle_name = str(bundle.get("bundle_name") or bundle_dir.name).strip()
+                bundle_name = str(bundle.get("bundle_name") or bundle_path.parent.name).strip()
                 entries = bundle.get("entries") or []
                 if not category or not isinstance(entries, list):
                     continue
+                bundles.append((bundle_path.parent, category, bundle_name, entries))
 
-                for entry in entries:
-                    if not isinstance(entry, dict):
-                        continue
-                    doc_id = _doc_id_from_entry(entry)
-                    if not doc_id:
-                        continue
-                    meta_path = bundle_dir / "sections" / f"{doc_id}.json"
-                    txt_path = bundle_dir / "sections" / f"{doc_id}.txt"
-                    meta = _read_json(meta_path)
-                    text = _load_text(meta, txt_path)
-                    if not text:
-                        continue
+            def _category_key(name: str) -> tuple[int, str]:
+                rank = CATEGORY_ORDER.index(name) if name in CATEGORY_ORDER else len(CATEGORY_ORDER)
+                return rank, name.lower()
 
-                    url = str(meta.get("url") or entry.get("url") or "").strip()
-                    citation = str(meta.get("citation") or entry.get("citation") or "").strip()
-                    title = str(meta.get("title") or entry.get("title") or "").strip()
-                    session_id = str(meta.get("session_name") or meta.get("session_id") or "").strip()
-                    chamber = str(meta.get("chamber_label") or meta.get("chamber") or "").strip()
-                    status_group = str(meta.get("bill_status_group") or "").strip()
-                    status_label = str(meta.get("bill_status_label") or "").strip()
-                    local_file = str(meta.get("local_file") or "").strip()
-                    total += _insert_document(
-                        con,
-                        category=category,
-                        bundle_name=bundle_name,
-                        doc_id=doc_id,
-                        url=url,
-                        citation=citation,
-                        title=title,
-                        text=text,
-                        session_id=session_id,
-                        chamber=chamber,
-                        status_group=status_group,
-                        status_label=status_label,
-                        local_file=local_file,
-                        metadata=meta,
-                        source_path=str(meta_path.relative_to(out_dir)) if meta_path.exists() else "",
+            outline = _Outline(con)
+            by_category: dict[str, list[tuple[Path, str, list[object]]]] = {}
+            for bundle_dir, category, bundle_name, entries in bundles:
+                by_category.setdefault(category, []).append((bundle_dir, bundle_name, entries))
+
+            doc_sort = 0
+            for category in sorted(by_category, key=_category_key):
+                category_bundles = sorted(
+                    by_category[category],
+                    key=lambda item: _natural_key(item[1]),
+                    reverse=category in NEWEST_FIRST_CATEGORIES,
+                )
+                category_node = outline.add(None, category, "source", category)
+
+                for bundle_dir, bundle_name, entries in category_bundles:
+                    # A flat source (one bundle named like the source) needs no extra level.
+                    bundle_node = (
+                        category_node
+                        if bundle_name == category
+                        else outline.add(category_node, category, "bundle", _bundle_label(bundle_name))
                     )
+                    open_divisions: list[tuple[int, int]] = []  # (rank, node id)
+
+                    for entry in entries:
+                        if not isinstance(entry, dict):
+                            continue
+                        doc_id = _doc_id_from_entry(entry)
+                        if not doc_id:
+                            continue
+                        meta_path = bundle_dir / "sections" / f"{doc_id}.json"
+                        txt_path = bundle_dir / "sections" / f"{doc_id}.txt"
+                        meta = _read_json(meta_path)
+                        text = _load_text(meta, txt_path)
+                        if not text:
+                            continue
+
+                        headings, heading_lines = _leading_headings(str(meta.get("doc_html") or ""))
+                        for rank, label in headings:
+                            while open_divisions and open_divisions[-1][0] >= rank:
+                                open_divisions.pop()
+                            if (
+                                not open_divisions
+                                and bundle_node != category_node
+                                and _same_division(label, bundle_name)
+                            ):
+                                # "TITLE 1 GENERAL PROVISIONS" inside bundle "TITLE 1 - General Provisions".
+                                open_divisions.append((rank, bundle_node))
+                                continue
+                            parent = open_divisions[-1][1] if open_divisions else bundle_node
+                            open_divisions.append((rank, outline.add(parent, category, "division", label)))
+                        doc_sort += 1
+
+                        url = str(meta.get("url") or entry.get("url") or "").strip()
+                        citation = str(meta.get("citation") or entry.get("citation") or "").strip()
+                        title = str(meta.get("title") or entry.get("title") or "").strip()
+                        if category == "Louisiana Constitution" and title.upper().startswith("ARTICLE"):
+                            title = _constitution_title(text, heading_lines) or title
+                        session_id = str(meta.get("session_name") or meta.get("session_id") or "").strip()
+                        chamber = str(meta.get("chamber_label") or meta.get("chamber") or "").strip()
+                        status_group = str(meta.get("bill_status_group") or "").strip()
+                        status_label = str(meta.get("bill_status_label") or "").strip()
+                        local_file = str(meta.get("local_file") or "").strip()
+                        total += _insert_document(
+                            con,
+                            category=category,
+                            bundle_name=bundle_name,
+                            doc_id=doc_id,
+                            url=url,
+                            citation=citation,
+                            title=title,
+                            text=text,
+                            session_id=session_id,
+                            chamber=chamber,
+                            status_group=status_group,
+                            status_label=status_label,
+                            local_file=local_file,
+                            metadata=meta,
+                            source_path=str(meta_path.relative_to(out_dir)) if meta_path.exists() else "",
+                            toc_node_id=open_divisions[-1][1] if open_divisions else bundle_node,
+                            sort_order=doc_sort,
+                            heading_lines=heading_lines,
+                        )
 
             if existing_index is not None:
                 merged = _merge_existing_index(con, existing_index)

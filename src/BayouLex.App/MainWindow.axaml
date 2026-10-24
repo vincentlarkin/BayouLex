@@ -1,0 +1,330 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BayouLex.App.ViewModels"
+        xmlns:views="using:BayouLex.App.Views"
+        x:Class="BayouLex.App.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="{Binding WindowTitle}"
+        Icon="/Assets/bayoulex-brand.png"
+        Width="1440" Height="900" MinWidth="960" MinHeight="600">
+
+  <Window.KeyBindings>
+    <KeyBinding Gesture="Ctrl+O" Command="{Binding OpenLibraryCommand}" />
+    <KeyBinding Gesture="Ctrl+T" Command="{Binding NewTabCommand}" />
+    <KeyBinding Gesture="Ctrl+W" Command="{Binding CloseTabCommand}" />
+    <KeyBinding Gesture="Ctrl+Q" Command="{Binding ExitCommand}" />
+    <KeyBinding Gesture="Alt+Left" Command="{Binding GoBackCommand}" />
+    <KeyBinding Gesture="Alt+Right" Command="{Binding GoForwardCommand}" />
+    <KeyBinding Gesture="Alt+Up" Command="{Binding PreviousSectionCommand}" />
+    <KeyBinding Gesture="Alt+Down" Command="{Binding NextSectionCommand}" />
+    <KeyBinding Gesture="Ctrl+L" Command="{Binding LocateInContentsCommand}" />
+    <KeyBinding Gesture="Ctrl+D" Command="{Binding ToggleBookmarkCommand}" />
+    <KeyBinding Gesture="Ctrl+Shift+C" Command="{Binding CopyCitationCommand}" />
+    <KeyBinding Gesture="Ctrl+OemPlus" Command="{Binding LargerTextCommand}" />
+    <KeyBinding Gesture="Ctrl+Add" Command="{Binding LargerTextCommand}" />
+    <KeyBinding Gesture="Ctrl+OemMinus" Command="{Binding SmallerTextCommand}" />
+    <KeyBinding Gesture="Ctrl+Subtract" Command="{Binding SmallerTextCommand}" />
+    <KeyBinding Gesture="Ctrl+D0" Command="{Binding ResetTextCommand}" />
+    <KeyBinding Gesture="Ctrl+F" Command="{Binding FocusSearchCommand}" />
+    <KeyBinding Gesture="Ctrl+G" Command="{Binding FocusGoToCommand}" />
+    <KeyBinding Gesture="Ctrl+D1" Command="{Binding ShowPaneCommand}" CommandParameter="0" />
+    <KeyBinding Gesture="Ctrl+D2" Command="{Binding ShowPaneCommand}" CommandParameter="1" />
+    <KeyBinding Gesture="Ctrl+D3" Command="{Binding ShowPaneCommand}" CommandParameter="2" />
+    <KeyBinding Gesture="Ctrl+D4" Command="{Binding ShowPaneCommand}" CommandParameter="3" />
+    <KeyBinding Gesture="F1" Command="{Binding AboutCommand}" />
+  </Window.KeyBindings>
+
+  <DockPanel>
+    <!-- Menu bar -->
+    <Border DockPanel.Dock="Top" BorderBrush="{StaticResource ShadowBrush}" BorderThickness="0,0,0,1">
+      <Menu>
+        <MenuItem Header="_File">
+          <MenuItem Header="_Open Library…" InputGesture="Ctrl+O" Command="{Binding OpenLibraryCommand}" />
+          <Separator />
+          <MenuItem Header="_New Tab" InputGesture="Ctrl+T" Command="{Binding NewTabCommand}" />
+          <MenuItem Header="_Close Tab" InputGesture="Ctrl+W" Command="{Binding CloseTabCommand}" />
+          <Separator />
+          <MenuItem Header="E_xit" InputGesture="Ctrl+Q" Command="{Binding ExitCommand}" />
+        </MenuItem>
+        <MenuItem Header="_Edit">
+          <MenuItem Header="Copy _Citation" InputGesture="Ctrl+Shift+C" Command="{Binding CopyCitationCommand}" />
+          <Separator />
+          <MenuItem Header="_Search Library…" InputGesture="Ctrl+F" Command="{Binding FocusSearchCommand}" />
+          <MenuItem Header="_Go to Citation…" InputGesture="Ctrl+G" Command="{Binding FocusGoToCommand}" />
+        </MenuItem>
+        <MenuItem Header="_View">
+          <MenuItem Header="_Contents" InputGesture="Ctrl+1" Command="{Binding ShowPaneCommand}" CommandParameter="0" />
+          <MenuItem Header="_Search" InputGesture="Ctrl+2" Command="{Binding ShowPaneCommand}" CommandParameter="1" />
+          <MenuItem Header="_Bookmarks" InputGesture="Ctrl+3" Command="{Binding ShowPaneCommand}" CommandParameter="2" />
+          <MenuItem Header="_History" InputGesture="Ctrl+4" Command="{Binding ShowPaneCommand}" CommandParameter="3" />
+          <Separator />
+          <MenuItem Header="_Larger Text" InputGesture="Ctrl+OemPlus" Command="{Binding LargerTextCommand}" />
+          <MenuItem Header="S_maller Text" InputGesture="Ctrl+OemMinus" Command="{Binding SmallerTextCommand}" />
+          <MenuItem Header="_Normal Text Size" InputGesture="Ctrl+D0" Command="{Binding ResetTextCommand}" />
+          <Separator />
+          <MenuItem Header="_Locate in Contents" InputGesture="Ctrl+L" Command="{Binding LocateInContentsCommand}" />
+        </MenuItem>
+        <MenuItem Header="_Go">
+          <MenuItem Header="_Back" InputGesture="Alt+Left" Command="{Binding GoBackCommand}" />
+          <MenuItem Header="_Forward" InputGesture="Alt+Right" Command="{Binding GoForwardCommand}" />
+          <Separator />
+          <MenuItem Header="_Previous Section" InputGesture="Alt+Up" Command="{Binding PreviousSectionCommand}" />
+          <MenuItem Header="_Next Section" InputGesture="Alt+Down" Command="{Binding NextSectionCommand}" />
+          <Separator />
+          <MenuItem Header="View on _Official Site" Command="{Binding OpenOnlineCommand}" />
+        </MenuItem>
+        <MenuItem Header="_Bookmarks">
+          <MenuItem Header="_Bookmark This Section" InputGesture="Ctrl+D" Command="{Binding ToggleBookmarkCommand}" />
+          <MenuItem Header="_Show Bookmarks" InputGesture="Ctrl+3" Command="{Binding ShowPaneCommand}" CommandParameter="2" />
+        </MenuItem>
+        <MenuItem Header="_Help">
+          <MenuItem Header="_About BayouLex" InputGesture="F1" Command="{Binding AboutCommand}" />
+        </MenuItem>
+      </Menu>
+    </Border>
+
+    <!-- Toolbar -->
+    <Border DockPanel.Dock="Top" BorderBrush="{StaticResource ShadowBrush}" BorderThickness="0,0,0,1" Padding="4,3">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+          <TextBlock Text="Go to:" VerticalAlignment="Center" Classes="muted" />
+          <TextBox x:Name="GoToBox" Width="260" Text="{Binding GoToText}" PlaceholderText="Citation or words (Ctrl+G)">
+            <TextBox.KeyBindings>
+              <KeyBinding Gesture="Enter" Command="{Binding GoToCommand}" />
+            </TextBox.KeyBindings>
+          </TextBox>
+          <Button Classes="push" Content="Go" MinWidth="44" Command="{Binding GoToCommand}" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <Button Classes="tool" Command="{Binding GoBackCommand}" ToolTip.Tip="Back (Alt+Left)">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <Path Data="M1,8 L8,1.5 L8,5.5 L15,5.5 L15,10.5 L8,10.5 L8,14.5 Z" Fill="#2E7D5B" Stroke="#14472F" StrokeThickness="1" />
+              <TextBlock Text="Back" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+          <Button Classes="tool" Command="{Binding GoForwardCommand}" ToolTip.Tip="Forward (Alt+Right)">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <TextBlock Text="Forward" VerticalAlignment="Center" />
+              <Path Data="M15,8 L8,1.5 L8,5.5 L1,5.5 L1,10.5 L8,10.5 L8,14.5 Z" Fill="#2E7D5B" Stroke="#14472F" StrokeThickness="1" />
+            </StackPanel>
+          </Button>
+          <Border Width="1" Height="22" Background="{StaticResource ShadowBrush}" Margin="5,0" />
+          <Button Classes="tool" Command="{Binding PreviousSectionCommand}" ToolTip.Tip="Previous section (Alt+Up)">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <Path Data="M8,1.5 L14.5,8 L10.5,8 L10.5,14.5 L5.5,14.5 L5.5,8 L1.5,8 Z" Fill="#3B6EA8" Stroke="#1D3C63" StrokeThickness="1" />
+              <TextBlock Text="Previous" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+          <Button Classes="tool" Command="{Binding NextSectionCommand}" ToolTip.Tip="Next section (Alt+Down)">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <Path Data="M8,14.5 L14.5,8 L10.5,8 L10.5,1.5 L5.5,1.5 L5.5,8 L1.5,8 Z" Fill="#3B6EA8" Stroke="#1D3C63" StrokeThickness="1" />
+              <TextBlock Text="Next" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+          <Border Width="1" Height="22" Background="{StaticResource ShadowBrush}" Margin="5,0" />
+          <Button Classes="tool" Command="{Binding LocateInContentsCommand}" ToolTip.Tip="Show this section in the Contents tree (Ctrl+L)">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <Canvas Width="16" Height="16">
+                <Ellipse Canvas.Left="2" Canvas.Top="2" Width="12" Height="12" Stroke="#8A2E2E" StrokeThickness="1.5" />
+                <Ellipse Canvas.Left="6" Canvas.Top="6" Width="4" Height="4" Fill="#B23A3A" />
+                <Path Data="M8,0 V4 M8,12 V16 M0,8 H4 M12,8 H16" Stroke="#8A2E2E" StrokeThickness="1.2" />
+              </Canvas>
+              <TextBlock Text="Locate" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+          <Button Classes="tool" Command="{Binding ToggleBookmarkCommand}" ToolTip.Tip="Bookmark this section (Ctrl+D)">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <Path Data="M8,1 L10.1,5.6 L15,6.2 L11.4,9.6 L12.3,14.6 L8,12.2 L3.7,14.6 L4.6,9.6 L1,6.2 L5.9,5.6 Z" Fill="#E2B33F" Stroke="#8A6A1F" StrokeThickness="1" />
+              <TextBlock Text="Bookmark" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+          <Button Classes="tool" Command="{Binding CopyCitationCommand}" ToolTip.Tip="Copy the citation (Ctrl+Shift+C)">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <Canvas Width="16" Height="16">
+                <Path Data="M5.5,4.5 H13.5 V15.5 H5.5 Z" Fill="White" Stroke="#6F6B62" StrokeThickness="1" />
+                <Path Data="M2.5,1.5 H10.5 V3.5 M2.5,1.5 V12.5 H4.5" Stroke="#6F6B62" StrokeThickness="1" />
+                <Path Data="M7.5,8 H11.5 M7.5,10.5 H11.5 M7.5,13 H10" Stroke="#A9A496" StrokeThickness="1" />
+              </Canvas>
+              <TextBlock Text="Copy Citation" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+          <Border Width="1" Height="22" Background="{StaticResource ShadowBrush}" Margin="5,0" />
+          <Button Classes="tool" Command="{Binding SmallerTextCommand}" ToolTip.Tip="Smaller text (Ctrl+-)">
+            <TextBlock Text="A" FontFamily="{StaticResource ReaderFont}" FontSize="12" FontWeight="SemiBold" />
+          </Button>
+          <Button Classes="tool" Command="{Binding LargerTextCommand}" ToolTip.Tip="Larger text (Ctrl++)">
+            <TextBlock Text="A" FontFamily="{StaticResource ReaderFont}" FontSize="18" FontWeight="SemiBold" />
+          </Button>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- Status bar -->
+    <Border DockPanel.Dock="Bottom" Padding="3,2" BorderBrush="{StaticResource ShadowBrush}" BorderThickness="0,1,0,0">
+      <DockPanel>
+        <Border DockPanel.Dock="Left" Classes="statusPanel" MinWidth="250">
+          <TextBlock Text="{Binding LibraryStatus}" />
+        </Border>
+        <Border DockPanel.Dock="Left" Classes="statusPanel" MinWidth="220">
+          <TextBlock Text="{Binding CurrentCitation}" />
+        </Border>
+        <Border Classes="statusPanel">
+          <TextBlock Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" />
+        </Border>
+      </DockPanel>
+    </Border>
+
+    <Grid ColumnDefinitions="340,5,*" Margin="4,4,4,3">
+      <!-- Navigation pane -->
+      <TabControl Grid.Column="0" Classes="classic" SelectedIndex="{Binding LeftPaneIndex}">
+        <TabItem Header="Contents">
+          <Border Classes="sunken">
+            <TreeView x:Name="ContentsTree" ItemsSource="{Binding Contents}"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled" Padding="2">
+              <TreeView.Styles>
+                <Style Selector="TreeViewItem" x:DataType="vm:TreeItemViewModel">
+                  <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                </Style>
+              </TreeView.Styles>
+              <TreeView.ItemTemplate>
+                <TreeDataTemplate DataType="vm:TreeItemViewModel" ItemsSource="{Binding Children}">
+                  <DockPanel ToolTip.Tip="{Binding Tip}" Margin="0,1">
+                    <Panel DockPanel.Dock="Left" Width="16" Height="16" Margin="0,0,6,0">
+                      <Canvas IsVisible="{Binding IsBook}" Width="16" Height="16">
+                        <Path Data="M3.5,1.5 H12.5 V14.5 H3.5 Z" Fill="#1F5A4B" Stroke="#0E3329" StrokeThickness="1" />
+                        <Path Data="M5.5,1.5 V14.5" Stroke="#8FB3A7" StrokeThickness="1" />
+                        <Path Data="M7.5,5.5 H11" Stroke="#E9D9B0" StrokeThickness="1.2" />
+                      </Canvas>
+                      <Canvas IsVisible="{Binding IsFolder}" Width="16" Height="16">
+                        <Path Data="M1.5,4.5 V13.5 H14.5 V5.5 H7.5 L6,3.5 H2.5 Z" Fill="#E8CB78" Stroke="#8A6A1F" StrokeThickness="1" />
+                        <Path Data="M1.5,6.5 H14.5" Stroke="#C9A24E" StrokeThickness="1" />
+                      </Canvas>
+                      <Canvas IsVisible="{Binding IsDocument}" Width="16" Height="16">
+                        <Path Data="M3.5,1.5 H10 L12.5,4 V14.5 H3.5 Z" Fill="White" Stroke="#6F6B62" StrokeThickness="1" />
+                        <Path Data="M10,1.5 V4 H12.5" Stroke="#6F6B62" StrokeThickness="1" />
+                        <Path Data="M5.5,6.5 H10.5 M5.5,8.5 H10.5 M5.5,10.5 H10.5 M5.5,12.5 H8.5" Stroke="#A9A496" StrokeThickness="1" />
+                      </Canvas>
+                    </Panel>
+                    <!-- Documents: short citation, then the title trimmed to fit. Folders: the name trimmed to fit. -->
+                    <TextBlock DockPanel.Dock="Left" IsVisible="{Binding IsDocument}" Text="{Binding Label}" VerticalAlignment="Center" />
+                    <Panel>
+                      <TextBlock IsVisible="{Binding IsDocument}" Text="{Binding Detail}" Margin="7,0,0,0" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Opacity="0.78" />
+                      <TextBlock IsVisible="{Binding !IsDocument}" Text="{Binding Label}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                 FontWeight="{Binding IsBook, Converter={x:Static vm:Converters.BoolToSemiBold}}" />
+                    </Panel>
+                  </DockPanel>
+                </TreeDataTemplate>
+              </TreeView.ItemTemplate>
+            </TreeView>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="Search">
+          <Border Classes="sunken" Background="{StaticResource ChromeBrush}">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Top" Margin="6" Spacing="5">
+                <TextBlock Text="Find words in every document:" Classes="small muted" />
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Classes="push" Content="Search" MinWidth="64" Margin="4,0,0,0" Command="{Binding SearchCommand}" />
+                  <TextBox x:Name="SearchBox" Text="{Binding SearchQuery}" PlaceholderText="e.g. usufruct, &quot;public entity&quot;">
+                    <TextBox.KeyBindings>
+                      <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
+                    </TextBox.KeyBindings>
+                  </TextBox>
+                </DockPanel>
+                <ComboBox ItemsSource="{Binding SearchSources}" SelectedItem="{Binding SelectedSearchSource}" HorizontalAlignment="Stretch" />
+                <TextBlock Text="{Binding SearchStatus}" Classes="small muted" TextWrapping="Wrap" />
+              </StackPanel>
+              <Border Classes="sunken" Margin="0" BorderThickness="0,1,0,0">
+                <ListBox x:Name="SearchResults" Classes="plain" ItemsSource="{Binding SearchHits}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" BorderThickness="0">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SearchHitViewModel">
+                      <StackPanel Spacing="1">
+                        <DockPanel>
+                          <TextBlock DockPanel.Dock="Right" Text="{Binding Category}" Classes="small muted" Margin="6,0,0,0" TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                          <TextBlock Text="{Binding Citation}" FontWeight="SemiBold" />
+                        </DockPanel>
+                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                        <views:SnippetBlock Parts="{Binding Snippet}" Classes="small muted" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Border>
+            </DockPanel>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="Bookmarks">
+          <Border Classes="sunken">
+            <DockPanel>
+              <Border DockPanel.Dock="Bottom" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ShadowBrush}" BorderThickness="0,1,0,0" Padding="6">
+                <Button Classes="push" Content="Remove" HorizontalAlignment="Left"
+                        Command="{Binding RemoveBookmarkCommand}" CommandParameter="{Binding #BookmarksList.SelectedItem}" />
+              </Border>
+              <ListBox x:Name="BookmarksList" Classes="plain" ItemsSource="{Binding Bookmarks}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" BorderThickness="0">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SavedDocumentViewModel">
+                    <StackPanel>
+                      <TextBlock Text="{Binding Citation}" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding Detail}" Classes="small muted" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Border>
+        </TabItem>
+
+        <TabItem Header="History">
+          <Border Classes="sunken">
+            <DockPanel>
+              <Border DockPanel.Dock="Bottom" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource ShadowBrush}" BorderThickness="0,1,0,0" Padding="6">
+                <Button Classes="push" Content="Clear History" HorizontalAlignment="Left" Command="{Binding ClearHistoryCommand}" />
+              </Border>
+              <ListBox x:Name="HistoryList" Classes="plain" ItemsSource="{Binding History}" ScrollViewer.HorizontalScrollBarVisibility="Disabled" BorderThickness="0">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SavedDocumentViewModel">
+                    <StackPanel>
+                      <TextBlock Text="{Binding Citation}" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding Detail}" Classes="small muted" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Border>
+        </TabItem>
+      </TabControl>
+
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+
+      <!-- Document tabs -->
+      <TabControl x:Name="DocumentTabs" Grid.Column="2" Classes="classic" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
+        <TabControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:DocumentTabViewModel">
+            <DockPanel ToolTip.Tip="{Binding ToolTip}">
+              <Button DockPanel.Dock="Right" Classes="tool" Padding="3,0" MinHeight="0" Margin="6,0,-4,0" FontSize="11"
+                      Content="✕" ToolTip.Tip="Close tab (Ctrl+W)"
+                      Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).CloseTabCommand}" CommandParameter="{Binding}" />
+              <TextBlock Text="{Binding Header}" MaxWidth="190" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+            </DockPanel>
+          </DataTemplate>
+        </TabControl.ItemTemplate>
+        <TabControl.ContentTemplate>
+          <DataTemplate x:DataType="vm:DocumentTabViewModel">
+            <Border BorderBrush="{StaticResource ShadowBrush}" BorderThickness="1">
+              <Panel>
+                <views:WelcomeView IsVisible="{Binding IsWelcome}" />
+                <views:DocumentView IsVisible="{Binding !IsWelcome}"
+                                    ReaderFontSize="{Binding $parent[Window].((vm:MainViewModel)DataContext).ReaderFontSize}" />
+              </Panel>
+            </Border>
+          </DataTemplate>
+        </TabControl.ContentTemplate>
+      </TabControl>
+    </Grid>
+  </DockPanel>
+</Window>

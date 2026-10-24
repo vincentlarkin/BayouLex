@@ -15,20 +15,33 @@ Pre-2000 Supreme Court year index: https://law.justia.com/cases/louisiana/suprem
 - Local Louisiana legislative bill histories, final disposition metadata, and extracted act text
 - API-ready canonical SQLite dataset (`data/bayoulex-content.sqlite`)
 - Offline API download chunks (`data/offline/<version>/`)
-- Public read-only API and fast Windows desktop client
+- BayouLex desktop app: an offline Louisiana law library reader (Windows, Linux, macOS)
+- Optional read-only API over the same dataset
 
 Default output root: `out/`
 
 ## Setup
 
+Windows:
+
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
+Linux / macOS:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
 Notes:
-- Uses Playwright with installed Edge (`msedge`).
-- PDF page-number scan prefers `pymupdf` and falls back to `pypdf`.
-- The API and Windows client require a normal installed .NET SDK available as `dotnet` on PATH.
+- The desktop app and API need the .NET 10 SDK as `dotnet` on PATH
+  (Fedora: `sudo dnf install dotnet-sdk-10.0`; or a per-user install via
+  `dotnet-install.sh --channel 10.0` into `~/.dotnet`).
+- Source downloads use plain HTTP (no browser needed).
+- Bundle PDFs are optional (`download_louisiana_laws.py --pdf`) and are the only
+  thing that needs Playwright; the API dataset does not use them.
 
 ## Simple Compendium Menu
 
@@ -38,10 +51,11 @@ Normal use should start here:
 python scripts\bayoulex_compendium.py
 ```
 
+On Linux/macOS: `.venv/bin/python scripts/bayoulex_compendium.py`.
+
 The menu can download from official sources, build the canonical API/client
 SQLite dataset, package offline chunks from an existing dataset, test offline
-download from an API, run a local API smoke server, and launch the C# Windows
-client.
+download from an API, run a local API smoke server, and launch the desktop app.
 
 For the plain-English API/client flow, see [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
@@ -60,11 +74,12 @@ For the plain-English API/client flow, see [docs/QUICKSTART.md](docs/QUICKSTART.
   - Groups bills by session/chamber for browsing and indexes their outcome status.
   - Can extract official bill/act PDF text in memory without saving the PDFs.
 - `scripts/build_bayoulex_dataset.py`
-  - Builds the canonical SQLite dataset used by the API and offline client.
+  - Builds the canonical SQLite library used by the desktop app and API, including the
+    browsable outline (Book / Title / Chapter / Section) derived from the official headings.
 - `scripts/package_offline_snapshot.py`
   - Compresses and chunks the SQLite dataset for API-served offline download.
 - `scripts/bayoulex_compendium.py`
-  - Human-facing MVP menu for source refresh, API download, API smoke, and C# client launch.
+  - Human-facing MVP menu for source refresh, API download, API smoke, and desktop app launch.
 
 The legacy Python GUI/search files live on the pushed `legacy` branch, not on
 this API-first refactor branch.
@@ -73,8 +88,10 @@ this API-first refactor branch.
 
 - `scripts/` - source ingestion, dataset building, offline packaging, and compendium menu.
 - `src/BayouLex.Api/` - ASP.NET Core read-only API over the canonical SQLite dataset.
-- `src/BayouLex.Client.Windows/` - C# WPF API-first Windows client.
-- `src/BayouLex.Shared/` - shared DTOs and API client.
+- `src/BayouLex.App/` - the BayouLex desktop app (Avalonia, cross-platform): contents tree,
+  full-text search, citation links, tabs, bookmarks, and history over a local library file.
+- `src/BayouLex.Api/` - optional ASP.NET Core read-only API over the same dataset.
+- `src/BayouLex.Shared/` - API DTOs and API client.
 - `out/` - generated source corpus used as build input.
 - `.toc-cache/` - cached TOC snapshots used to speed resume runs.
 - `requirements.txt` - Python dependencies for source ingestion and offline packaging.
@@ -156,21 +173,16 @@ Package offline snapshot chunks:
 python scripts\package_offline_snapshot.py --db data\bayoulex-content.sqlite --dataset-version 20260426
 ```
 
-C# API and Windows client:
+Run the desktop app on a library you built (otherwise it uses the last library
+opened, or `~/.local/share/BayouLex/bayoulex-content.sqlite` /
+`%LOCALAPPDATA%\BayouLex\bayoulex-content.sqlite`):
 
-```powershell
-dotnet build src\BayouLex.Api\BayouLex.Api.csproj
-dotnet build src\BayouLex.Client.Windows\BayouLex.Client.Windows.csproj
+```bash
+BAYOULEX_LIBRARY=data/bayoulex-content.sqlite dotnet run --project src/BayouLex.App
 ```
 
-Local smoke test:
-
-```powershell
-python scripts\bayoulex_compendium.py
-```
-
-Choose `Run local API smoke server`, then open another terminal and choose
-`Run C# Windows client`.
+Or choose `Run the BayouLex desktop app` in the compendium. Bookmarks, history,
+and settings live in that same per-user BayouLex folder.
 
 Raw text search without SQLite:
 
@@ -203,5 +215,6 @@ Generated caches/test artifacts are now ignored:
 - `out_test/`
 - `out_cache_test/`
 - `playwright-browsers/`
+- `.venv/`
 - Python cache files (`__pycache__`, `*.pyc`)
 

@@ -1,0 +1,77 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="BayouLex.App.App"
+             Name="BayouLex"
+             RequestedThemeVariant="Light">
+  <Application.Resources>
+    <ResourceDictionary>
+      <!-- Classic reference-library palette: warm gray chrome, bayou green, gold, cream paper. -->
+      <Color x:Key="ChromeColor">#E7E3D9</Color>
+      <Color x:Key="ChromeDarkColor">#D3CEC2</Color>
+      <Color x:Key="ShadowColor">#8E897D</Color>
+      <Color x:Key="DarkShadowColor">#55524B</Color>
+      <Color x:Key="BayouColor">#1F5A4B</Color>
+      <Color x:Key="BayouDeepColor">#0E3329</Color>
+      <Color x:Key="BayouMistColor">#8FB3A7</Color>
+      <Color x:Key="GoldColor">#B68A3C</Color>
+      <Color x:Key="PaperColor">#FFFDF7</Color>
+      <Color x:Key="InkColor">#1C1B18</Color>
+      <Color x:Key="MutedInkColor">#5F5B52</Color>
+      <Color x:Key="LinkColor">#0B3C8C</Color>
+      <Color x:Key="HitColor">#FFE680</Color>
+
+      <SolidColorBrush x:Key="ChromeBrush" Color="{StaticResource ChromeColor}" />
+      <SolidColorBrush x:Key="ChromeDarkBrush" Color="{StaticResource ChromeDarkColor}" />
+      <SolidColorBrush x:Key="ShadowBrush" Color="{StaticResource ShadowColor}" />
+      <SolidColorBrush x:Key="DarkShadowBrush" Color="{StaticResource DarkShadowColor}" />
+      <SolidColorBrush x:Key="BayouBrush" Color="{StaticResource BayouColor}" />
+      <SolidColorBrush x:Key="BayouDeepBrush" Color="{StaticResource BayouDeepColor}" />
+      <SolidColorBrush x:Key="GoldBrush" Color="{StaticResource GoldColor}" />
+      <SolidColorBrush x:Key="PaperBrush" Color="{StaticResource PaperColor}" />
+      <SolidColorBrush x:Key="InkBrush" Color="{StaticResource InkColor}" />
+      <SolidColorBrush x:Key="MutedInkBrush" Color="{StaticResource MutedInkColor}" />
+      <SolidColorBrush x:Key="LinkBrush" Color="{StaticResource LinkColor}" />
+      <SolidColorBrush x:Key="HitBrush" Color="{StaticResource HitColor}" />
+      <LinearGradientBrush x:Key="CaptionBrush" StartPoint="0%,0%" EndPoint="100%,0%">
+        <GradientStop Offset="0" Color="{StaticResource BayouDeepColor}" />
+        <GradientStop Offset="1" Color="{StaticResource BayouMistColor}" />
+      </LinearGradientBrush>
+
+      <FontFamily x:Key="ChromeFont">avares://bayoulex/Assets/Fonts#IBM Plex Sans</FontFamily>
+      <FontFamily x:Key="ReaderFont">avares://bayoulex/Assets/Fonts#Source Serif 4</FontFamily>
+      <FontFamily x:Key="MonoFont">avares://bayoulex/Assets/Fonts#IBM Plex Mono</FontFamily>
+
+      <!-- Simple theme overrides -->
+      <FontFamily x:Key="ContentControlThemeFontFamily">avares://bayoulex/Assets/Fonts#IBM Plex Sans</FontFamily>
+      <x:Double x:Key="FontSizeSmall">11</x:Double>
+      <x:Double x:Key="FontSizeNormal">13</x:Double>
+      <x:Double x:Key="FontSizeLarge">13</x:Double>
+      <SolidColorBrush x:Key="ThemeBackgroundBrush" Color="#FBFAF6" />
+      <SolidColorBrush x:Key="ThemeBorderLowBrush" Color="{StaticResource ShadowColor}" />
+      <SolidColorBrush x:Key="ThemeBorderMidBrush" Color="#6F6B62" />
+      <SolidColorBrush x:Key="ThemeBorderHighBrush" Color="{StaticResource DarkShadowColor}" />
+      <SolidColorBrush x:Key="ThemeControlLowBrush" Color="#F4F2EC" />
+      <SolidColorBrush x:Key="ThemeControlMidBrush" Color="{StaticResource ChromeColor}" />
+      <SolidColorBrush x:Key="ThemeControlMidHighBrush" Color="{StaticResource ChromeDarkColor}" />
+      <SolidColorBrush x:Key="ThemeControlHighBrush" Color="#C6C0B2" />
+      <SolidColorBrush x:Key="ThemeControlVeryHighBrush" Color="#A49E90" />
+      <SolidColorBrush x:Key="ThemeControlHighlightLowBrush" Color="#F1EEE6" />
+      <SolidColorBrush x:Key="ThemeControlHighlightMidBrush" Color="#E2DCCD" />
+      <SolidColorBrush x:Key="ThemeControlHighlightHighBrush" Color="#CFC7B4" />
+      <SolidColorBrush x:Key="ThemeForegroundBrush" Color="{StaticResource InkColor}" />
+      <SolidColorBrush x:Key="ThemeForegroundLowBrush" Color="{StaticResource MutedInkColor}" />
+      <SolidColorBrush x:Key="ThemeAccentBrush" Color="{StaticResource BayouColor}" />
+      <SolidColorBrush x:Key="ThemeAccentBrush2" Color="#2A6B5A" />
+      <SolidColorBrush x:Key="ThemeAccentBrush3" Color="{StaticResource BayouColor}" />
+      <SolidColorBrush x:Key="ThemeAccentBrush4" Color="#C9D6CF" />
+      <SolidColorBrush x:Key="HighlightBrush" Color="{StaticResource BayouColor}" />
+      <SolidColorBrush x:Key="HighlightForegroundBrush" Color="White" />
+      <Thickness x:Key="ThemeBorderThickness">1</Thickness>
+    </ResourceDictionary>
+  </Application.Resources>
+
+  <Application.Styles>
+    <SimpleTheme />
+    <StyleInclude Source="avares://bayoulex/Theme/Classic.axaml" />
+  </Application.Styles>
+</Application>

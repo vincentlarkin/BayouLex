@@ -7,6 +7,10 @@ Prerequisites:
 - Python with the dependencies from `requirements.txt`
 - A normal installed .NET SDK available as `dotnet` on PATH
 
+On Linux/macOS, run the same menu with `.venv/bin/python
+scripts/bayoulex_compendium.py`. Per-user data (bookmarks, history, settings)
+is stored in `~/.local/share/BayouLex/` instead of `%LOCALAPPDATA%\BayouLex\`.
+
 Use the compendium menu instead of remembering script flags:
 
 ```powershell
@@ -15,7 +19,7 @@ python scripts\bayoulex_compendium.py
 
 From there you can download/build from source, package offline chunks from the
 current dataset, download offline chunks from an API, run a local API smoke
-server, and launch the C# Windows client.
+server, and launch the BayouLex desktop app.
 
 The legacy Python GUI/search tools are intentionally not on this refactor
 branch. They are preserved on the pushed `legacy` branch.
@@ -80,24 +84,6 @@ python scripts\bayoulex_compendium.py
 
 Choose `Run local API smoke server`.
 
-In another terminal, run the Windows app:
-
-```powershell
-python scripts\bayoulex_compendium.py
-```
-
-Choose `Run C# Windows client`.
-
-In the app, open `Settings`, set the API base URL to:
-
-```text
-http://127.0.0.1:5087/bayoulex/v1/
-```
-
-Click `Connect`, then search. The `Download Data for Offline` button downloads
-the chunked offline SQLite snapshot when the API has an offline manifest
-available.
-
 Opening either of these URLs in a browser should now show JSON instead of a
 plain 404:
 
@@ -113,12 +99,6 @@ $env:BAYOULEX_DATASET_PATH=(Resolve-Path data\bayoulex-content.sqlite).Path
 $env:BAYOULEX_OFFLINE_ROOT=(Resolve-Path data\offline).Path
 $env:BAYOULEX_PUBLIC_BASE_URL='http://127.0.0.1:5087/bayoulex/v1'
 dotnet run --project src\BayouLex.Api\BayouLex.Api.csproj --urls http://127.0.0.1:5087
-```
-
-Then, in another terminal:
-
-```powershell
-dotnet run --project src\BayouLex.Client.Windows\BayouLex.Client.Windows.csproj
 ```
 
 ## What Goes On The NAS

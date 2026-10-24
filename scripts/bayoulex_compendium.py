@@ -3,7 +3,7 @@ BayouLex Compendium.
 
 Run with no arguments:
 
-    python scripts\bayoulex_compendium.py
+    python scripts/bayoulex_compendium.py
 
 This is the small MVP console for the new API-first BayouLex workflow.
 """
@@ -14,6 +14,7 @@ import datetime as _dt
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -27,6 +28,19 @@ PYTHON = sys.executable
 DEFAULT_DATASET = ROOT / "data" / "bayoulex-content.sqlite"
 DEFAULT_OFFLINE_ROOT = ROOT / "data" / "offline"
 DEFAULT_API_BASE = "http://127.0.0.1:5087/bayoulex/v1/"
+IS_WINDOWS = sys.platform == "win32"
+# One cross-platform desktop app (Avalonia) on Windows, Linux, and macOS.
+CLIENT_NAME = "BayouLex desktop app"
+CLIENT_PROJECT = "src/BayouLex.App/BayouLex.App.csproj"
+
+
+def _dotnet() -> str:
+    # Fall back to the per-user install location used by dotnet-install.sh.
+    found = shutil.which("dotnet")
+    if found:
+        return found
+    user_install = Path.home() / ".dotnet" / ("dotnet.exe" if IS_WINDOWS else "dotnet")
+    return str(user_install) if user_install.exists() else "dotnet"
 
 
 def _pause() -> None:
@@ -65,7 +79,7 @@ def _run(label: str, command: list[str], *, env: dict[str, str] | None = None) -
 def _has_dotnet_sdk() -> bool:
     try:
         proc = subprocess.run(
-            ["dotnet", "--list-sdks"],
+            [_dotnet(), "--list-sdks"],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -79,7 +93,7 @@ def _has_dotnet_sdk() -> bool:
 def _require_dotnet_sdk() -> bool:
     if _has_dotnet_sdk():
         return True
-    print("\n.NET SDK is required to run the BayouLex API or Windows client.")
+    print(f"\n.NET SDK is required to run the BayouLex API or {CLIENT_NAME}.")
     print("Install the .NET SDK so the 'dotnet' command includes SDKs, then try again.")
     print("Check with: dotnet --list-sdks")
     return False
@@ -245,11 +259,11 @@ def _run_api_smoke() -> None:
     print("\nStarting local BayouLex API.")
     print("Open this in a browser to verify it is alive:")
     print("  http://127.0.0.1:5087/bayoulex/v1/")
-    print("Leave this window open while testing the C# app. Stop with Ctrl+C.\n")
+    print("Leave this terminal open while testing the C# app. Stop with Ctrl+C.\n")
     _run(
         "Run local API smoke server",
         [
-            "dotnet",
+            _dotnet(),
             "run",
             "--project",
             "src/BayouLex.Api/BayouLex.Api.csproj",
@@ -260,19 +274,21 @@ def _run_api_smoke() -> None:
     )
 
 
-def _run_windows_client() -> None:
+def _run_client() -> None:
     if not _require_dotnet_sdk():
         return
-    print("\nStarting BayouLex Windows client.")
-    print(f"Use API: {DEFAULT_API_BASE}")
+    print(f"\nStarting the {CLIENT_NAME}.")
+    env = os.environ.copy()
+    if DEFAULT_DATASET.exists():
+        # Open the library this repo just built rather than the per-user default.
+        env.setdefault("BAYOULEX_LIBRARY", str(DEFAULT_DATASET))
+        print(f"Library: {DEFAULT_DATASET}")
+    else:
+        print("No library built yet; the app will offer File > Open Library.")
     _run(
-        "Run C# Windows client",
-        [
-            "dotnet",
-            "run",
-            "--project",
-            "src/BayouLex.Client.Windows/BayouLex.Client.Windows.csproj",
-        ],
+        f"Run {CLIENT_NAME}",
+        [_dotnet(), "run", "--project", CLIENT_PROJECT],
+        env=env,
     )
 
 
@@ -290,13 +306,13 @@ BayouLex MVP flow
    Starts the read-only API over {DEFAULT_DATASET}. The API runs continuously
    while the server window is open or, later, as a TrueNAS Docker app.
 
-3. Run C# Windows client
-   Opens the new API-first desktop app. It searches through the API by default.
-   Its "Download Data for Offline" button pulls offline chunks from the API.
+3. Run the {CLIENT_NAME}
+   Opens the desktop library reader on {DEFAULT_DATASET}. It works fully
+   offline: contents tree, full-text search, citation links, bookmarks.
 
 4. Build offline package
    Creates data/offline/<version>/ from the current SQLite dataset. This is what
-   lets the API serve offline downloads to the Windows app.
+   lets the API serve offline downloads to the desktop app.
 
 5. Download from API
    Tests the offline package route directly from this console by downloading and
@@ -311,7 +327,7 @@ def _status() -> None:
     print(f"API dataset:     {'present' if DEFAULT_DATASET.exists() else 'missing'}  {DEFAULT_DATASET}")
     print(f"Offline chunks:  {'present' if DEFAULT_OFFLINE_ROOT.exists() else 'missing'}  {DEFAULT_OFFLINE_ROOT}")
     print(f"API project:     present  {ROOT / 'src' / 'BayouLex.Api'}")
-    print(f"Windows client:  present  {ROOT / 'src' / 'BayouLex.Client.Windows'}")
+    print(f"Client:          present  {ROOT / CLIENT_PROJECT}")
     if DEFAULT_DATASET.exists() and not DEFAULT_OFFLINE_ROOT.exists():
         print("\nOffline chunks are optional. Choose option 2 to create them from the current dataset.")
     print("\nLegacy Python GUI/search files are intentionally not part of this branch.")
@@ -325,7 +341,7 @@ def main() -> int:
         print("2. Build offline package from current dataset")
         print("3. Download offline data from API")
         print("4. Run local API smoke server")
-        print("5. Run C# Windows client")
+        print(f"5. Run the {CLIENT_NAME}")
         print("6. Explain API flow")
         print("7. Show status")
         print("8. Exit")
@@ -345,7 +361,7 @@ def main() -> int:
                 _run_api_smoke()
                 _pause()
             elif choice == "5":
-                _run_windows_client()
+                _run_client()
                 _pause()
             elif choice == "6":
                 _explain()

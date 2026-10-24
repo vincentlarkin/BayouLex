@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BayouLex.Api/BayouLex.Api.csproj" />
+    <Project Path="src/BayouLex.App/BayouLex.App.csproj" />
+    <Project Path="src/BayouLex.Shared/BayouLex.Shared.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,102 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:BayouLex.App.ViewModels"
+             xmlns:lib="using:BayouLex.App.Library"
+             x:Class="BayouLex.App.Views.WelcomeView"
+             x:DataType="vm:MainViewModel">
+  <ScrollViewer Background="#EFEBE2" HorizontalScrollBarVisibility="Disabled">
+    <Border Background="{StaticResource PaperBrush}" BorderBrush="#CFC8B8" BorderThickness="1,0,1,0" MaxWidth="880" Padding="56,40,56,48">
+      <StackPanel Spacing="18">
+        <!-- Title page -->
+        <StackPanel Orientation="Horizontal" Spacing="18">
+          <Border Width="84" Height="84" Background="White" BorderBrush="{StaticResource GoldBrush}" BorderThickness="2" Padding="4">
+            <Image Source="/Assets/bayoulex-brand.png" />
+          </Border>
+          <StackPanel VerticalAlignment="Center" Spacing="2">
+            <TextBlock Text="BayouLex" FontFamily="{StaticResource ReaderFont}" FontSize="38" FontWeight="SemiBold" Foreground="{StaticResource BayouDeepBrush}" />
+            <TextBlock Text="A library of Louisiana law — codes, statutes, constitution, bills, and decisions."
+                       FontFamily="{StaticResource ReaderFont}" FontStyle="Italic" FontSize="16" Foreground="{StaticResource MutedInkBrush}" />
+          </StackPanel>
+        </StackPanel>
+        <Border Height="2" Background="{StaticResource GoldBrush}" />
+
+        <!-- No library yet -->
+        <Border IsVisible="{Binding !HasLibrary}" Classes="sunken" Background="#FFF8E6" BorderBrush="{StaticResource GoldBrush}" Padding="18,14">
+          <StackPanel Spacing="8">
+            <TextBlock Text="No library is open" FontSize="16" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding LibraryError}" TextWrapping="Wrap" Classes="muted" />
+            <TextBlock TextWrapping="Wrap" FontSize="13">
+              BayouLex reads a library file built from the official Louisiana sources. To build one, run the compendium
+              (python scripts/bayoulex_compendium.py) and choose “Download from source and build data”, then open the
+              resulting data/bayoulex-content.sqlite here.
+            </TextBlock>
+            <Button Classes="push" Content="Open Library…" Command="{Binding OpenLibraryCommand}" HorizontalAlignment="Left" Margin="0,4,0,0" />
+          </StackPanel>
+        </Border>
+
+        <!-- Sources -->
+        <StackPanel IsVisible="{Binding HasLibrary}" Spacing="6">
+          <TextBlock Text="IN THIS LIBRARY" FontSize="12" FontWeight="SemiBold" LetterSpacing="1.2" Foreground="{StaticResource BayouBrush}" />
+          <TextBlock Text="{Binding LibraryStatus}" Classes="muted" FontSize="12.5" />
+          <ItemsControl x:Name="SourcesList" ItemsSource="{Binding Sources}" Margin="0,4,0,0">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <UniformGrid Columns="2" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="lib:SourceSummary">
+                <Button Classes="tool" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="8,6" Margin="0,0,8,4"
+                        Tag="{Binding}" Click="SourceButton_Click">
+                  <DockPanel>
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding DocumentCount, StringFormat='{}{0:n0}'}" Classes="muted" FontSize="12" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Name}" FontFamily="{StaticResource ReaderFont}" FontSize="16" Foreground="{StaticResource LinkBrush}" />
+                  </DockPanel>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <!-- Recently read -->
+        <StackPanel IsVisible="{Binding !!History.Count}" Spacing="4">
+          <TextBlock Text="RECENTLY READ" FontSize="12" FontWeight="SemiBold" LetterSpacing="1.2" Foreground="{StaticResource BayouBrush}" />
+          <ItemsControl x:Name="RecentList">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SavedDocumentViewModel">
+                <Button Classes="link" Tag="{Binding}" Click="RecentButton_Click" Margin="0,2">
+                  <TextBlock TextTrimming="CharacterEllipsis">
+                    <Run Text="{Binding Citation}" FontWeight="SemiBold" />
+                    <Run Text="  " />
+                    <Run Text="{Binding Title}" />
+                  </TextBlock>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <!-- Shortcuts -->
+        <Border Classes="sunken" Background="#F7F4EC" Padding="16,12">
+          <StackPanel Spacing="6">
+            <TextBlock Text="GETTING AROUND" FontSize="12" FontWeight="SemiBold" LetterSpacing="1.2" Foreground="{StaticResource BayouBrush}" />
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" x:Name="ShortcutGrid">
+              <TextBlock Grid.Row="0" Text="Ctrl+G" FontFamily="{StaticResource MonoFont}" Margin="0,0,16,3" />
+              <TextBlock Grid.Row="0" Grid.Column="1" Text="Go to a citation — try “R.S. 9:2800”, “C.C. art. 2315”, “Const. art. I, §2”, or “HB 1”" TextWrapping="Wrap" />
+              <TextBlock Grid.Row="1" Text="Ctrl+F" FontFamily="{StaticResource MonoFont}" Margin="0,0,16,3" />
+              <TextBlock Grid.Row="1" Grid.Column="1" Text="Search the full text of every document" TextWrapping="Wrap" />
+              <TextBlock Grid.Row="2" Text="Alt+← / →" FontFamily="{StaticResource MonoFont}" Margin="0,0,16,3" />
+              <TextBlock Grid.Row="2" Grid.Column="1" Text="Back and forward" TextWrapping="Wrap" />
+              <TextBlock Grid.Row="3" Text="Alt+↑ / ↓" FontFamily="{StaticResource MonoFont}" Margin="0,0,16,3" />
+              <TextBlock Grid.Row="3" Grid.Column="1" Text="Previous and next section" TextWrapping="Wrap" />
+              <TextBlock Grid.Row="4" Text="Ctrl+D" FontFamily="{StaticResource MonoFont}" Margin="0,0,16,3" />
+              <TextBlock Grid.Row="4" Grid.Column="1" Text="Bookmark the open section" TextWrapping="Wrap" />
+              <TextBlock Grid.Row="5" Text="Ctrl+click" FontFamily="{StaticResource MonoFont}" Margin="0,0,16,3" />
+              <TextBlock Grid.Row="5" Grid.Column="1" Text="Open a citation link in a new tab" TextWrapping="Wrap" />
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </Border>
+  </ScrollViewer>
+</UserControl>

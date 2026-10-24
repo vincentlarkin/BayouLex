@@ -2,10 +2,13 @@
 Download Louisiana laws from https://www.legis.la.gov/legis/LawsContents.aspx
 and save them as local text + static PDFs.
 
-Why Playwright?
+TOC crawling
   The TOC pages are ASP.NET WebForms; many nodes expand via postback and do not
-  have stable URLs. We use Playwright (Edge channel) to click nodes and extract
-  the real Law document links: Law.aspx?d=<id>.
+  have stable URLs. We replay the postback form (__VIEWSTATE/__EVENTTARGET)
+  with plain HTTP to extract the real Law document links: Law.aspx?d=<id>.
+
+Bundle PDFs (--pdf) are optional, unused by the API dataset, and are the only
+thing that needs Playwright.
 
 Run examples:
   python scripts/download_louisiana_laws.py --categories revised-statutes
@@ -31,7 +34,17 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
-from playwright.sync_api import Browser, Page, sync_playwright
+
+
+def _sync_playwright():
+    # Playwright is only needed for optional bundle PDF rendering (--pdf).
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as e:
+        raise SystemExit(
+            "--pdf needs Playwright: pip install playwright && python -m playwright install chromium"
+        ) from e
+    return sync_playwright()
 
 
 BASE = "https://www.legis.la.gov/legis/"
@@ -107,6 +120,10 @@ def _new_requests_session(*, trust_env: bool) -> requests.Session:
 
 
 # Windows-invalid path characters + ASCII control characters.
+# Edge ships with Windows; elsewhere use Playwright's bundled Chromium
+# (install once with: python -m playwright install chromium).
+DEFAULT_BROWSER_CHANNEL = "msedge" if sys.platform == "win32" else "chromium"
+
 # NOTE: must be `\x00-\x1F` (not `\\x00-\\x1F`) or the regex range accidentally
 # eats lots of normal characters (e.g. uppercase letters).
 _INVALID_PATH_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1F]')
@@ -602,7 +619,7 @@ section.law { page-break-before: always; position: relative; }
 
 class _PdfRenderer:
     def __init__(self, *, browser_channel: str, headless: bool) -> None:
-        self._p = sync_playwright().start()
+        self._p = _sync_playwright().start()
         self._browser = self._p.chromium.launch(channel=browser_channel, headless=headless)
 
     def close(self) -> None:
@@ -705,7 +722,7 @@ def _render_pdf_from_html(
     # Fallback (slower): create a new browser per render.
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_pdf = pdf_path.with_suffix(pdf_path.suffix + ".tmp")
-    with sync_playwright() as p:
+    with _sync_playwright() as p:
         browser = p.chromium.launch(channel=browser_channel, headless=headless)
         page = browser.new_page()
         try:
@@ -1035,88 +1052,84 @@ def _crawl_category_flat(
     )
 
 
+_POSTBACK_RE = re.compile(r"__doPostBack\('([^']*)','([^']*)'\)")
+
+
+def _postback_form(full_html: str) -> dict[str, str]:
+    """Collect the WebForms hidden fields needed to replay a postback."""
+    soup = BeautifulSoup(full_html, "html.parser")
+    form = soup.find("form")
+    if not form:
+        raise RuntimeError("TOC page has no <form>; cannot replay postback")
+    return {
+        inp["name"]: inp.get("value", "")
+        for inp in form.find_all("input", attrs={"name": True})
+        if (inp.get("type") or "text").lower() in {"hidden", "text"}
+    }
+
+
 def _crawl_category_hierarchical(
     session: requests.Session,
     cat: CategoryConfig,
     *,
     max_bundles: Optional[int],
     max_sections: Optional[int],
-    browser_channel: str,
-    headless: bool,
 ) -> list[Bundle]:
     url = toc_url(cat.folder_id)
     r = session.get(url, timeout=60)
     r.raise_for_status()
-    panel_html = _extract_update_panel_html(r.text)
-    root_tab = _parse_root_tab_text(panel_html) or "Titles"
+    root_html = r.text
+    panel_html = _extract_update_panel_html(root_html)
     nodes = _parse_root_nodes(panel_html)
     if not nodes:
         raise RuntimeError(f"Could not parse root nodes for {cat.display_name} from {url}")
     if max_bundles is not None:
         nodes = nodes[:max_bundles]
 
+    # Each node link is javascript:__doPostBack(target, arg). The view state is
+    # carried client-side, so every node can be posted from the root page state.
+    base_form = _postback_form(root_html)
+    root_soup = BeautifulSoup(panel_html, "html.parser")
+
+    def _entries_for(node: RootNode, node_html: str) -> list[TocEntry]:
+        entries = _parse_leaf_entries(_extract_update_panel_html(node_html))
+        if cat.key == "revised-statutes":
+            entries = _filter_revised_statutes_title_doc(node, entries)
+        else:
+            entries = _dedupe_entries(entries)
+        if max_sections is not None:
+            entries = entries[:max_sections]
+        return entries
+
     bundles: list[Bundle] = []
+    for node in nodes:
+        link = root_soup.find("a", id=node.click_id)
+        m = _POSTBACK_RE.search(link["href"]) if link else None
+        if not m:
+            raise RuntimeError(f"No postback target for {node.number_text} ({node.click_id})")
+        form = dict(base_form, __EVENTTARGET=m.group(1), __EVENTARGUMENT=m.group(2))
 
-    with sync_playwright() as p:
-        browser: Browser = p.chromium.launch(channel=browser_channel, headless=headless)
-        page: Page = browser.new_page()
-        page.goto(url, wait_until="domcontentloaded", timeout=120_000)
-        page.wait_for_selector("#ctl00_ctl00_PageBody_PageContent_UpdatePanelToc", timeout=120_000)
+        entries: list[TocEntry] = []
+        for attempt in range(3):
+            resp = session.post(url, data=form, timeout=120)
+            resp.raise_for_status()
+            entries = _entries_for(node, resp.text)
+            if entries:
+                break
+            time.sleep(1.0 + attempt)
+        if not entries:
+            raise RuntimeError(f"Postback for {node.number_text} returned no Law.aspx entries")
 
-        for idx, node in enumerate(nodes, start=1):
-            # Click node by DOM id (more reliable than text selectors).
-            click_sel = f"#{node.click_id}"
-            page.click(click_sel, timeout=60_000)
-            # Wait for leaf links to show up in the update panel.
-            page.wait_for_selector(
-                "#ctl00_ctl00_PageBody_PageContent_UpdatePanelToc a[href^='Law.aspx']",
-                timeout=120_000,
+        bundles.append(
+            Bundle(
+                category_key=cat.key,
+                category_name=cat.display_name,
+                # Keep bundle naming consistent across Titles.
+                bundle_name=_bundle_name_default(node),
+                source_toc_url=url,
+                entries=entries,
             )
-            node_panel_html = page.locator("#ctl00_ctl00_PageBody_PageContent_UpdatePanelToc").inner_html()
-            entries = _parse_leaf_entries(node_panel_html)
-            if cat.key == "revised-statutes":
-                entries = _filter_revised_statutes_title_doc(node, entries)
-            else:
-                entries = _dedupe_entries(entries)
-            if max_sections is not None:
-                entries = entries[:max_sections]
-            if not entries:
-                # Try one more time after a short delay (UpdatePanel race).
-                page.wait_for_timeout(800)
-                node_panel_html = page.locator("#ctl00_ctl00_PageBody_PageContent_UpdatePanelToc").inner_html()
-                entries = _parse_leaf_entries(node_panel_html)
-                if cat.key == "revised-statutes":
-                    entries = _filter_revised_statutes_title_doc(node, entries)
-                else:
-                    entries = _dedupe_entries(entries)
-                if max_sections is not None:
-                    entries = entries[:max_sections]
-            if not entries:
-                raise RuntimeError(f"After clicking {node.number_text} there were no Law.aspx entries parsed")
-
-            # Keep bundle naming consistent across Titles.
-            bundle_name = _bundle_name_default(node)
-
-            bundles.append(
-                Bundle(
-                    category_key=cat.key,
-                    category_name=cat.display_name,
-                    bundle_name=bundle_name,
-                    source_toc_url=url,
-                    entries=entries,
-                )
-            )
-
-            # Return to the root list (Titles/Articles) for next node.
-            try:
-                page.click(f"text={root_tab}", timeout=30_000)
-                page.wait_for_selector(click_sel, timeout=120_000)
-            except Exception:
-                # Fallback: reload the page.
-                page.goto(url, wait_until="domcontentloaded", timeout=120_000)
-                page.wait_for_selector(click_sel, timeout=120_000)
-
-        browser.close()
+        )
 
     return bundles
 
@@ -1127,8 +1140,6 @@ def _crawl_category(
     *,
     max_bundles: Optional[int],
     max_sections: Optional[int],
-    browser_channel: str,
-    headless: bool,
 ) -> list[Bundle]:
     # Decide flat vs hierarchical by looking for Law.aspx links on the Parent TOC page.
     url = toc_url(cat.folder_id)
@@ -1142,8 +1153,6 @@ def _crawl_category(
         cat,
         max_bundles=max_bundles,
         max_sections=max_sections,
-        browser_channel=browser_channel,
-        headless=headless,
     )
 
 
@@ -1395,7 +1404,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="Ignore any cached TOC and re-scrape it",
     )
-    parser.add_argument("--skip-pdf", action="store_true", help="Skip PDF generation")
+    parser.add_argument(
+        "--pdf",
+        action="store_true",
+        help="Also render bundle PDFs (needs Playwright + a Chromium browser; not used by the API dataset)",
+    )
+    # Kept so older command lines still work; PDFs are now off unless --pdf.
+    parser.add_argument("--skip-pdf", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--toc-page-numbers",
         action=argparse.BooleanOptionalAction,
@@ -1446,7 +1461,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Backend for pass1 page-number scan (default: auto; prefers pymupdf, falls back to pypdf)",
     )
     parser.add_argument("--trust-env", action="store_true", help="Trust HTTP(S)_PROXY env vars for requests")
-    parser.add_argument("--browser-channel", default="msedge", help="Playwright chromium channel (default: msedge)")
+    parser.add_argument(
+        "--browser-channel",
+        default=DEFAULT_BROWSER_CHANNEL,
+        help=f"Playwright chromium channel (default: {DEFAULT_BROWSER_CHANNEL}; 'chromium' uses Playwright's bundled browser)",
+    )
     parser.add_argument("--headful", action="store_true", help="Run browser headful (debugging)")
     parser.add_argument("--verbose", action="store_true", help="Verbose logging")
     parser.add_argument(
@@ -1456,6 +1475,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Continue to next bundle on PDF errors (default: true)",
     )
     args = parser.parse_args(argv)
+    args.skip_pdf = not args.pdf
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1542,8 +1562,6 @@ def main(argv: Optional[list[str]] = None) -> int:
                     cat,
                     max_bundles=args.max_bundles,
                     max_sections=args.max_sections,
-                    browser_channel=args.browser_channel,
-                    headless=headless,
                 )
                 # Only write cache for full crawls (no limits/filters).
                 if (

@@ -1,0 +1,180 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{StaticResource ChromeBrush}" />
+    <Setter Property="FontFamily" Value="{StaticResource ChromeFont}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+  </Style>
+
+  <!-- Menus -->
+  <Style Selector="Menu">
+    <Setter Property="Background" Value="{StaticResource ChromeBrush}" />
+    <Setter Property="Padding" Value="2,1" />
+  </Style>
+  <Style Selector="Menu > MenuItem">
+    <Setter Property="Padding" Value="8,3" />
+  </Style>
+
+  <!-- Flat toolbar buttons that raise on hover, like old Office toolbars. -->
+  <Style Selector="Button.tool">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="7,3" />
+    <Setter Property="Margin" Value="1,0" />
+    <Setter Property="MinHeight" Value="26" />
+  </Style>
+  <Style Selector="Button.tool:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#F4F1E9" />
+    <Setter Property="BorderBrush" Value="{StaticResource ShadowBrush}" />
+  </Style>
+  <Style Selector="Button.tool:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource ChromeDarkBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource DarkShadowBrush}" />
+  </Style>
+
+  <!-- Standard push buttons -->
+  <Style Selector="Button.push">
+    <Setter Property="Background" Value="#EFECE4" />
+    <Setter Property="BorderBrush" Value="{StaticResource DarkShadowBrush}" />
+    <Setter Property="Padding" Value="14,4" />
+    <Setter Property="MinWidth" Value="76" />
+  </Style>
+  <Style Selector="Button.push:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#F7F5EF" />
+  </Style>
+
+  <Style Selector="Button.link">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Foreground" Value="{StaticResource LinkBrush}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+  </Style>
+  <Style Selector="Button.link:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="TextBlock.TextDecorations" Value="Underline" />
+  </Style>
+
+  <!-- Inputs -->
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="White" />
+    <Setter Property="BorderBrush" Value="{StaticResource ShadowBrush}" />
+    <Setter Property="Padding" Value="5,3" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="Background" Value="White" />
+    <Setter Property="BorderBrush" Value="{StaticResource ShadowBrush}" />
+    <Setter Property="Padding" Value="5,3" />
+  </Style>
+
+  <!-- Sunken frames around panes, and the gradient caption bar above them. -->
+  <Style Selector="Border.sunken">
+    <Setter Property="BorderBrush" Value="{StaticResource ShadowBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Background" Value="White" />
+  </Style>
+  <Style Selector="Border.caption">
+    <Setter Property="Background" Value="{StaticResource CaptionBrush}" />
+    <Setter Property="Padding" Value="8,3" />
+  </Style>
+  <Style Selector="Border.caption TextBlock">
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+
+  <!-- Classic tabs: raised outline, selected tab joins the page below it. -->
+  <Style Selector="TabControl.classic">
+    <Setter Property="Padding" Value="0" />
+  </Style>
+  <Style Selector="TabControl.classic TabItem">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Padding" Value="10,4" />
+    <Setter Property="Margin" Value="0,2,-1,0" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+    <Setter Property="Background" Value="{StaticResource ChromeDarkBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource ShadowBrush}" />
+    <Setter Property="BorderThickness" Value="1,1,1,0" />
+  </Style>
+  <Style Selector="TabControl.classic TabItem /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="BorderBrush" Value="{Binding $parent[TabItem].BorderBrush}" />
+    <Setter Property="BorderThickness" Value="{Binding $parent[TabItem].BorderThickness}" />
+    <Setter Property="CornerRadius" Value="3,3,0,0" />
+  </Style>
+  <Style Selector="TabControl.classic TabItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="#EEEAE1" />
+  </Style>
+  <Style Selector="TabControl.classic TabItem:selected">
+    <Setter Property="Margin" Value="0,0,-1,-1" />
+    <Setter Property="Padding" Value="10,5,10,6" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TabControl.classic TabItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="White" />
+  </Style>
+  <Style Selector="TabControl.classic TabItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="White" />
+  </Style>
+  <Style Selector="TabControl.classic TabItem:selected:focus /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="White" />
+  </Style>
+  <Style Selector="TabControl.classic TabItem:selected:focus:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="White" />
+  </Style>
+
+  <!-- Selection: solid bayou green with white text in lists and the tree. -->
+  <Style Selector="TreeViewItem:selected /template/ Border#SelectionBorder">
+    <Setter Property="Background" Value="{StaticResource BayouBrush}" />
+  </Style>
+  <Style Selector="TreeViewItem:selected /template/ Border#SelectionBorder:pointerover">
+    <Setter Property="Background" Value="{StaticResource BayouBrush}" />
+  </Style>
+  <Style Selector="TreeViewItem:selected /template/ Border#SelectionBorder:focus">
+    <Setter Property="Background" Value="{StaticResource BayouBrush}" />
+  </Style>
+  <Style Selector="TreeViewItem:selected /template/ ContentPresenter#PART_HeaderPresenter">
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+  <Style Selector="ListBox.plain ListBoxItem">
+    <Setter Property="Padding" Value="6,4" />
+  </Style>
+  <Style Selector="ListBox.plain ListBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BayouBrush}" />
+  </Style>
+  <Style Selector="ListBox.plain ListBoxItem:selected:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BayouBrush}" />
+  </Style>
+  <Style Selector="ListBox.plain ListBoxItem:selected:focus /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource BayouBrush}" />
+  </Style>
+  <Style Selector="ListBox.plain ListBoxItem:selected TextBlock">
+    <Setter Property="Foreground" Value="White" />
+  </Style>
+
+  <!-- Status bar panels -->
+  <Style Selector="Border.statusPanel">
+    <Setter Property="BorderBrush" Value="{StaticResource ShadowBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="6,1" />
+    <Setter Property="Margin" Value="0,0,3,0" />
+  </Style>
+  <Style Selector="Border.statusPanel TextBlock">
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+
+  <Style Selector="TextBlock.muted">
+    <Setter Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+  </Style>
+  <Style Selector="TextBlock.small">
+    <Setter Property="FontSize" Value="11.5" />
+  </Style>
+
+  <Style Selector="GridSplitter">
+    <Setter Property="Background" Value="{StaticResource ChromeBrush}" />
+  </Style>
+</Styles>
