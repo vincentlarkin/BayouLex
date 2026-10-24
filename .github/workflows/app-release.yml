@@ -1,0 +1,93 @@
+name: App release
+
+# Push a tag like v2.0.0 to build BayouLex for Windows, Linux, and macOS and attach the
+# downloads to that tag's release. Each build ships the current Louisiana Law pack so a fresh
+# install works offline; everything else downloads from the Library Manager.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" ||
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "BayouLex $GITHUB_REF_NAME" --generate-notes
+
+  build:
+    needs: release
+    # Manual runs skip the release job; build anyway and keep the downloads as artifacts.
+    if: always() && (needs.release.result == 'success' || needs.release.result == 'skipped')
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: osx-arm64
+            os: macos-latest
+          - rid: osx-x64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Fetch the Louisiana Law pack
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p packs
+          gh release download library --repo "$GITHUB_REPOSITORY" --pattern louisiana-law.sqlite.br --pattern packs.json --dir packs
+          # Ship a manifest that lists only the bundled pack.
+          python3 - <<'PY'
+          import json
+          manifest = json.load(open("packs/packs.json"))
+          manifest["packs"] = [p for p in manifest["packs"] if p.get("required")]
+          json.dump(manifest, open("packs/packs.json", "w"), indent=2)
+          PY
+
+      - name: Publish
+        shell: bash
+        run: >
+          dotnet publish src/BayouLex.App -c Release -r ${{ matrix.rid }} --self-contained
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none
+          -o dist/BayouLex
+
+      - name: Package
+        shell: bash
+        run: |
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "BayouLex-${{ matrix.rid }}.zip" BayouLex
+          else
+            tar -czf "BayouLex-${{ matrix.rid }}.tar.gz" BayouLex
+          fi
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/BayouLex-${{ matrix.rid }}.* --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Keep the build (manual runs)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: BayouLex-${{ matrix.rid }}
+          path: dist/BayouLex-${{ matrix.rid }}.*

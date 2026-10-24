@@ -15,6 +15,7 @@ public interface IShell
     void FocusGoToBox();
     void RevealTreeItem(TreeItemViewModel item);
     Task ShowAboutAsync();
+    Task ShowLibraryManagerAsync(LibraryManagerViewModel manager);
     void CloseWindow();
 }
 
@@ -37,8 +38,112 @@ public sealed partial class MainViewModel : ObservableObject
         _readerFontSize = _settings.ReaderFontSize;
         Tabs.Add(new DocumentTabViewModel());
         _selectedTab = Tabs[0];
-        TryOpenLibrary(_settings.ResolveLibraryPath(), remember: false);
+        if (_settings.ExplicitLibraryPath() is { } explicitPath)
+        {
+            TryOpenLibrary(explicitPath, remember: false);
+        }
+        else
+        {
+            OpenManagedLibrary();
+        }
         RefreshSaved();
+    }
+
+    // ----- Content packs -----
+
+    private PackStore? _packs;
+
+    /// <summary>True when reading the pack-managed library (the normal case) rather than a specific file.</summary>
+    public bool IsManaged => _packs is not null;
+
+    [ObservableProperty]
+    private bool _updatesAvailable;
+
+    private void OpenManagedLibrary()
+    {
+        _packs ??= new PackStore(AppPaths.ManagedLibraryPath);
+        TryOpenLibrary(_packs.Path, remember: false);
+    }
+
+    /// <summary>
+    /// After the window opens: set up Louisiana Law from the copy shipped with the app on first run,
+    /// offer the other collections once, then look for updates in the background.
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        if (_packs is null)
+        {
+            return;
+        }
+        if (_packs.GetInstalled().Count == 0)
+        {
+            var bundled = PackCatalog.GetBundledManifest()?.Packs.FirstOrDefault(pack => pack.Required);
+            var archive = bundled is null ? null : Path.Combine(PackCatalog.BundledDirectory, bundled.File);
+            if (bundled is not null && File.Exists(archive))
+            {
+                StatusMessage = "Setting up the Louisiana Law library…";
+                try
+                {
+                    await _packs.InstallAsync(archive, bundled.Group, new Progress<string>(text => StatusMessage = text), CancellationToken.None);
+                    OpenManagedLibrary();
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = $"Could not set up the library: {ex.Message}";
+                }
+            }
+        }
+        if (!_settings.WizardShown || _packs.GetInstalled().Count == 0)
+        {
+            _settings.WizardShown = true;
+            SaveSettings();
+            await ShowLibraryManagerAsync(firstRun: true);
+        }
+        else
+        {
+            _ = CheckForUpdatesAsync();
+        }
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            var manifest = await new PackCatalog().GetManifestAsync(CancellationToken.None);
+            var installed = _packs!.GetInstalled().ToDictionary(pack => pack.Id, pack => pack.Version);
+            var stale = manifest.Packs.Count(pack => installed.TryGetValue(pack.Id, out var version) && string.CompareOrdinal(pack.Version, version) > 0);
+            UpdatesAvailable = stale > 0;
+            if (stale > 0)
+            {
+                StatusMessage = $"Updates are available for {stale} collection{(stale == 1 ? "" : "s")}. Open File › Library Manager to install them.";
+            }
+        }
+        catch (Exception)
+        {
+            // Offline is fine; the library works without the update server.
+        }
+    }
+
+    [RelayCommand]
+    private Task OpenLibraryManagerAsync() => ShowLibraryManagerAsync(firstRun: false);
+
+    private async Task ShowLibraryManagerAsync(bool firstRun)
+    {
+        // The Library Manager always works on the managed library; using it switches back from a hand-picked file.
+        if (_packs is null)
+        {
+            _settings.LibraryPath = null;
+            SaveSettings();
+            OpenManagedLibrary();
+        }
+        var manager = new LibraryManagerViewModel(_packs!, new PackCatalog(), firstRun);
+        await _shell.ShowLibraryManagerAsync(manager);
+        if (manager.Changed)
+        {
+            OpenManagedLibrary();
+            UpdatesAvailable = false;
+            StatusMessage = "Library updated.";
+        }
     }
 
     public LibraryDatabase? Library { get; private set; }
@@ -129,6 +234,7 @@ public sealed partial class MainViewModel : ObservableObject
         var path = await _shell.PickLibraryFileAsync();
         if (path is not null)
         {
+            _packs = null;
             TryOpenLibrary(path, remember: true);
         }
     }

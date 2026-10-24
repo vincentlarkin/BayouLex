@@ -1,23 +1,48 @@
 # BayouLex
 
-API-first Louisiana legal research compendium.
+A desktop library of Louisiana law: the Constitution, every code, the Revised
+Statutes, legislative bills, and Supreme Court decisions, readable and searchable
+offline on Windows, Linux, and macOS.
 
 ![BayouLex brand image](assets/branding/bayoulex-brand.png)
 
-Source TOC: https://www.legis.la.gov/legis/LawsContents.aspx
-Supreme Court opinions (all years): https://law.justia.com/cases/louisiana/supreme-court/
+## Getting BayouLex
+
+Download the build for your system from the repository's Releases and run `bayoulex`.
+Louisiana Law comes with the app, so it works offline from the first launch. A
+welcome window then offers the optional collections; you can change them any time
+from **File › Library Manager**:
+
+| Collection | Packs | Contents |
+|---|---|---|
+| Louisiana Law (included) | `louisiana-law` | Constitution, Civil Code, Revised Statutes, codes of procedure and evidence, Children's Code, legislative rules |
+| Legislative Bills | `bills-<year>` | Every bill and resolution: history, votes, official documents, enacted act text |
+| Supreme Court Decisions | `supreme-court-<decade>s` | Louisiana Supreme Court opinions |
+
+The app checks for newer packs when it starts and offers them in the status bar.
+
+## How Content Stays Current
+
+- Packs are published to the `library` GitHub release with a `packs.json` manifest
+  (version, size, checksum, and a content fingerprint for each pack).
+- The **Library packs** workflow (`.github/workflows/library-packs.yml`) runs daily:
+  it refreshes this year's bills every day and the codes and statutes on Mondays,
+  then uploads only packs whose content actually changed. Run it by hand with a
+  plan such as `bills-2019,bills-2020` or `court-2010-2019` to backfill.
+- The publisher never replaces a pack with one holding noticeably fewer documents,
+  so a partial or rate-limited download can't shrink what users have.
+- Tagging `v*` runs the **App release** workflow, which builds Windows, Linux, and
+  macOS downloads with the current Louisiana Law pack inside.
+
+Sources: https://www.legis.la.gov/legis/LawsContents.aspx (codes, statutes, bills) and
+https://law.justia.com/cases/louisiana/supreme-court/ (Supreme Court opinions).
 
 ## What This Repo Produces
 
-- Local law text and metadata (`sections/*.txt`, `sections/*.json`)
-- Local Louisiana Supreme Court opinion PDFs plus extracted text/metadata
-- Local Louisiana legislative bill histories, final disposition metadata, and extracted act text
-- API-ready canonical SQLite dataset (`data/bayoulex-content.sqlite`)
-- Offline API download chunks (`data/offline/<version>/`)
-- BayouLex desktop app: an offline Louisiana law library reader (Windows, Linux, macOS)
-- Optional read-only API over the same dataset
-
-Default output root: `out/`
+- Content packs for the app (`packs/<pack>.sqlite.br` + `packs/packs.json`)
+- An all-in-one SQLite library for development and the API (`data/bayoulex-content.sqlite`)
+- The downloaded source corpus the packs are built from (`out/`)
+- The BayouLex desktop app (`src/BayouLex.App`) and an optional read-only API (`src/BayouLex.Api`)
 
 ## Setup
 
@@ -52,9 +77,9 @@ python scripts\bayoulex_compendium.py
 
 On Linux/macOS: `.venv/bin/python scripts/bayoulex_compendium.py`.
 
-The menu can download from official sources, build the canonical API/client
-SQLite dataset, package offline chunks from an existing dataset, test offline
-download from an API, run a local API smoke server, and launch the desktop app.
+The menu downloads from the official sources, builds the library and content
+packs, publishes packs to GitHub, and launches the desktop app (which then
+installs from your locally built packs).
 
 For the plain-English API/client flow, see [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
@@ -73,18 +98,26 @@ For the plain-English API/client flow, see [docs/QUICKSTART.md](docs/QUICKSTART.
   - Saves yearly bundles, local opinion PDFs when available, and extracted full text for indexing.
 - `scripts/download_louisiana_bills.py`
   - Downloads bill metadata and printable bill histories from the official Louisiana Legislature session records.
+  - `--session` takes ids (`25RS,251ES`), a year (`2025`), `current`, or `all`.
   - Groups bills by session/chamber for browsing and indexes their outcome status.
   - Can extract official bill/act PDF text in memory without saving the PDFs.
 - `scripts/build_bayoulex_dataset.py`
-  - Builds the canonical SQLite library used by the desktop app and API, including the
-    browsable outline (Book / Title / Chapter / Section) derived from the official headings.
+  - Builds the library, including the browsable outline (Book / Title / Chapter / Section)
+    derived from the official headings and clean act text for bills.
+  - Default: one all-in-one database (`data/bayoulex-content.sqlite`) for development and the API.
+  - `--packs packs [--only louisiana-law,bills-2025]`: content packs for the app, without a search
+    index (the app builds it on install), Brotli-compressed, plus `packs/packs.json`.
+- `scripts/publish_packs.py`
+  - Uploads changed packs and the merged manifest to the `library` GitHub release (`--dry-run` to preview).
+- `scripts/refresh_packs.py`
+  - Download + build + publish for a plan (`law`, `bills-current`, `bills-YYYY`, `court-YYYY-YYYY`);
+    what the scheduled workflow runs.
 - `scripts/package_offline_snapshot.py`
   - Compresses and chunks the SQLite dataset for API-served offline download.
 - `scripts/bayoulex_compendium.py`
-  - Human-facing MVP menu for source refresh, API download, API smoke, and desktop app launch.
+  - Menu for downloading, building packs, publishing, and launching the app.
 
-The legacy Python GUI/search files live on the pushed `legacy` branch, not on
-this API-first refactor branch.
+The legacy Python GUI/search files live on the pushed `legacy` branch.
 
 ## Project Layout
 
@@ -163,10 +196,24 @@ Re-run one bundle:
 python scripts\download_louisiana_laws.py --categories revised-statutes --bundle-regex "^TITLE 9 "
 ```
 
-Build the canonical API/client dataset:
+Build the all-in-one library (development, API):
 
 ```powershell
 python scripts\build_bayoulex_dataset.py --out out --db data\bayoulex-content.sqlite --dataset-version 20260426
+```
+
+Build content packs for the app, preview, and publish:
+
+```bash
+python scripts/build_bayoulex_dataset.py --packs packs
+python scripts/publish_packs.py --packs packs --dry-run
+python scripts/publish_packs.py --packs packs
+```
+
+Point the app at locally built packs instead of the published ones:
+
+```bash
+BAYOULEX_PACKS=packs dotnet run --project src/BayouLex.App
 ```
 
 Package offline snapshot chunks:
@@ -175,16 +222,15 @@ Package offline snapshot chunks:
 python scripts\package_offline_snapshot.py --db data\bayoulex-content.sqlite --dataset-version 20260426
 ```
 
-Run the desktop app on a library you built (otherwise it uses the last library
-opened, or `~/.local/share/BayouLex/bayoulex-content.sqlite` /
-`%LOCALAPPDATA%\BayouLex\bayoulex-content.sqlite`):
+Open the all-in-one development library directly, bypassing packs:
 
 ```bash
 BAYOULEX_LIBRARY=data/bayoulex-content.sqlite dotnet run --project src/BayouLex.App
 ```
 
-Or choose `Run the BayouLex desktop app` in the compendium. Bookmarks, history,
-and settings live in that same per-user BayouLex folder.
+Normally the app reads its pack library (`library.sqlite`) plus bookmarks, history,
+and settings from `~/.local/share/BayouLex/` (`%LOCALAPPDATA%\BayouLex\` on Windows;
+`BAYOULEX_DATA_DIR` overrides it).
 
 Raw text search without SQLite:
 

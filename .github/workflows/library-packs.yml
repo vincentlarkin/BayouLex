@@ -1,0 +1,56 @@
+name: Library packs
+
+# Keeps the content packs on the "library" release current. The app checks packs.json on
+# launch and offers updates; only packs whose content actually changed are re-uploaded.
+on:
+  schedule:
+    # Daily at ~4 AM Central: this year's bills. Mondays also refresh the codes and statutes.
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      plan:
+        description: "What to refresh, e.g. law,bills-current or bills-2019,bills-2020 or court-2010-2019"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: library-packs
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Choose what to refresh
+        id: plan
+        env:
+          PLAN_INPUT: ${{ inputs.plan }}
+        run: |
+          if [ -n "$PLAN_INPUT" ]; then
+            plan="$PLAN_INPUT"
+          elif [ "$(date -u +%u)" = "1" ]; then
+            plan="law,bills-current"
+          else
+            plan="bills-current"
+          fi
+          echo "plan=$plan" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN: ${{ steps.plan.outputs.plan }}
+        run: python scripts/refresh_packs.py --plan "$PLAN" --publish

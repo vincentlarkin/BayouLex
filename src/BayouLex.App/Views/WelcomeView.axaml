@@ -26,11 +26,9 @@
             <TextBlock Text="No library is open" FontSize="16" FontWeight="SemiBold" />
             <TextBlock Text="{Binding LibraryError}" TextWrapping="Wrap" Classes="muted" />
             <TextBlock TextWrapping="Wrap" FontSize="13">
-              BayouLex reads a library file built from the official Louisiana sources. To build one, run the compendium
-              (python scripts/bayoulex_compendium.py) and choose “Download from source and build data”, then open the
-              resulting data/bayoulex-content.sqlite here.
+              Open the Library Manager to download Louisiana Law and any other collections you want.
             </TextBlock>
-            <Button Classes="push" Content="Open Library…" Command="{Binding OpenLibraryCommand}" HorizontalAlignment="Left" Margin="0,4,0,0" />
+            <Button Classes="push" Content="Library Manager…" Command="{Binding OpenLibraryManagerCommand}" HorizontalAlignment="Left" Margin="0,4,0,0" />
           </StackPanel>
         </Border>
 

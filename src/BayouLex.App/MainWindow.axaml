@@ -39,7 +39,8 @@
     <Border DockPanel.Dock="Top" BorderBrush="{StaticResource ShadowBrush}" BorderThickness="0,0,0,1">
       <Menu>
         <MenuItem Header="_File">
-          <MenuItem Header="_Open Library…" InputGesture="Ctrl+O" Command="{Binding OpenLibraryCommand}" />
+          <MenuItem Header="_Library Manager…" Command="{Binding OpenLibraryManagerCommand}" />
+          <MenuItem Header="_Open Library File…" InputGesture="Ctrl+O" Command="{Binding OpenLibraryCommand}" />
           <Separator />
           <MenuItem Header="_New Tab" InputGesture="Ctrl+T" Command="{Binding NewTabCommand}" />
           <MenuItem Header="_Close Tab" InputGesture="Ctrl+W" Command="{Binding CloseTabCommand}" />
@@ -168,6 +169,10 @@
         <Border DockPanel.Dock="Left" Classes="statusPanel" MinWidth="220">
           <TextBlock Text="{Binding CurrentCitation}" />
         </Border>
+        <Button DockPanel.Dock="Right" Classes="tool" Padding="8,0" MinHeight="0" IsVisible="{Binding UpdatesAvailable}"
+                Command="{Binding OpenLibraryManagerCommand}" ToolTip.Tip="Open the Library Manager">
+          <TextBlock Text="⟳ Updates available" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BayouBrush}" />
+        </Button>
         <Border Classes="statusPanel">
           <TextBlock Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" />
         </Border>

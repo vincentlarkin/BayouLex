@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
 DEFAULT_DATASET = ROOT / "data" / "bayoulex-content.sqlite"
 DEFAULT_OFFLINE_ROOT = ROOT / "data" / "offline"
+PACKS_DIR = ROOT / "packs"
 DEFAULT_API_BASE = "http://127.0.0.1:5087/bayoulex/v1/"
 IS_WINDOWS = sys.platform == "win32"
 # One cross-platform desktop app (Avalonia) on Windows, Linux, and macOS.
@@ -141,6 +142,10 @@ def _download_from_source() -> None:
                 "--dataset-version",
                 version,
             ],
+        ),
+        (
+            "Build content packs",
+            [PYTHON, "scripts/build_bayoulex_dataset.py", "--out", "out", "--packs", "packs"],
         ),
         (
             "Package offline API download",
@@ -288,12 +293,12 @@ def _run_client() -> None:
         return
     print(f"\nStarting the {CLIENT_NAME}.")
     env = os.environ.copy()
-    if DEFAULT_DATASET.exists():
-        # Open the library this repo just built rather than the per-user default.
-        env.setdefault("BAYOULEX_LIBRARY", str(DEFAULT_DATASET))
-        print(f"Library: {DEFAULT_DATASET}")
+    if (PACKS_DIR / "packs.json").exists():
+        # The Library Manager installs from the packs built here instead of the published ones.
+        env.setdefault("BAYOULEX_PACKS", str(PACKS_DIR))
+        print(f"Packs: {PACKS_DIR} (File > Library Manager installs from here)")
     else:
-        print("No library built yet; the app will offer File > Open Library.")
+        print("No local packs; the Library Manager uses the published packs.")
     _run(
         f"Run {CLIENT_NAME}",
         [_dotnet(), "run", "--project", CLIENT_PROJECT],
@@ -303,29 +308,26 @@ def _run_client() -> None:
 
 def _explain() -> None:
     print(
-        f"""
-BayouLex MVP flow
------------------
+        """
+How BayouLex content flows
+--------------------------
 1. Download from source
-   Fetches official Louisiana source material, builds one SQLite database, and
-   packages offline chunks. This is a refresh/build job. It does not need to run
-   all day.
+   Fetches the official Louisiana material into out/ (codes and statutes from
+   legis.la.gov, bills and act text, Supreme Court opinions from Justia), then
+   builds data/bayoulex-content.sqlite and the content packs in packs/.
 
-2. Run API smoke server
-   Starts the read-only API over {DEFAULT_DATASET}. The API runs continuously
-   while the server window is open or, later, as a TrueNAS Docker app.
+2. Content packs
+   The desktop app installs packs: Louisiana Law (bundled with the app) plus
+   optional Legislative Bills (one per year) and Supreme Court Decisions (one per
+   decade). Packs are published to the GitHub release "library"; the app's
+   Library Manager downloads and updates them.
 
-3. Run the {CLIENT_NAME}
-   Opens the desktop library reader on {DEFAULT_DATASET}. It works fully
-   offline: contents tree, full-text search, citation links, bookmarks.
+3. Automatic updates
+   The "Library packs" GitHub workflow refreshes this year's bills daily and the
+   codes weekly, and publishes only packs whose content changed.
 
-4. Build offline package
-   Creates data/offline/<version>/ from the current SQLite dataset. This is what
-   lets the API serve offline downloads to the desktop app.
-
-5. Download from API
-   Tests the offline package route directly from this console by downloading and
-   verifying API chunks into data/api-downloads/.
+4. Desktop app
+   Runs on the packs it has installed, fully offline.
 """
     )
 
@@ -342,46 +344,57 @@ def _status() -> None:
     print("\nLegacy Python GUI/search files are intentionally not part of this branch.")
 
 
+def _build_packs() -> bool:
+    return _run(
+        "Build content packs",
+        [PYTHON, "scripts/build_bayoulex_dataset.py", "--out", "out", "--packs", str(PACKS_DIR.relative_to(ROOT))],
+    )
+
+
+def _publish_packs() -> None:
+    if not (PACKS_DIR / "packs.json").exists():
+        print("\nNo packs built yet. Choose 'Build content packs' first.")
+        return
+    _run("Preview what would be published", [PYTHON, "scripts/publish_packs.py", "--packs", str(PACKS_DIR), "--dry-run"])
+    if input("\nPublish these to the GitHub release? [y/N]: ").strip().lower() in {"y", "yes"}:
+        _run("Publish content packs", [PYTHON, "scripts/publish_packs.py", "--packs", str(PACKS_DIR)])
+
+
 def main() -> int:
     while True:
         print("\nBayouLex Compendium")
         print("===================")
-        print("1. Download from source and build API data")
-        print("2. Build offline package from current dataset")
-        print("3. Download offline data from API")
-        print("4. Run local API smoke server")
-        print(f"5. Run the {CLIENT_NAME}")
-        print("6. Explain API flow")
-        print("7. Show status")
-        print("8. Exit")
+        print("1. Download from source and build everything")
+        print("2. Build content packs from downloaded data")
+        print("3. Publish content packs to GitHub")
+        print(f"4. Run the {CLIENT_NAME}")
+        print("5. Run local API smoke server")
+        print("6. Build API offline package from current dataset")
+        print("7. Download API offline data")
+        print("8. Explain how content flows")
+        print("9. Show status")
+        print("0. Exit")
         choice = input("\nChoose: ").strip()
 
         try:
-            if choice == "1":
-                _download_from_source()
-                _pause()
-            elif choice == "2":
-                _build_offline_package()
-                _pause()
-            elif choice == "3":
-                _download_from_api()
-                _pause()
-            elif choice == "4":
-                _run_api_smoke()
-                _pause()
-            elif choice == "5":
-                _run_client()
-                _pause()
-            elif choice == "6":
-                _explain()
-                _pause()
-            elif choice == "7":
-                _status()
-                _pause()
-            elif choice == "8":
+            actions = {
+                "1": _download_from_source,
+                "2": _build_packs,
+                "3": _publish_packs,
+                "4": _run_client,
+                "5": _run_api_smoke,
+                "6": _build_offline_package,
+                "7": _download_from_api,
+                "8": _explain,
+                "9": _status,
+            }
+            if choice == "0":
                 return 0
+            if choice in actions:
+                actions[choice]()
+                _pause()
             else:
-                print("Choose a number from 1 to 8.")
+                print("Choose a number from 0 to 9.")
         except KeyboardInterrupt:
             print("\nCanceled. Back at the main menu.")
 

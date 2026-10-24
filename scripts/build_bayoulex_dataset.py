@@ -2,7 +2,9 @@
 Build the canonical BayouLex content database from generated downloader output.
 
 Input:  out/**/bundle.json + sections/*.json + sections/*.txt, plus existing out/index.sqlite when present
-Output: data/bayoulex-content.sqlite
+Output: data/bayoulex-content.sqlite (one all-in-one library, for development and the API)
+   or:  --packs DIR -> DIR/<pack>.sqlite.br + DIR/packs.json (downloadable content packs:
+        louisiana-law, bills-<year>, supreme-court-<decade>s)
 
 This is the bridge away from many tiny runtime files. It preserves the existing
 downloaders as ingestion tools while producing one API/client-ready SQLite DB.
@@ -307,7 +309,8 @@ class _Outline:
         self._sort = 0
         self._existing: dict[tuple[int | None, str], int] = {}
 
-    def add(self, parent_id: int | None, category: str, kind: str, label: str) -> int:
+    def add(self, parent_id: int | None, category: str, kind: str, label: str, *, sort_order: int | None = None) -> int:
+        """Add an outline node. sort_order fixes the position among siblings that may come from other packs."""
         # Sections sometimes repeat their division heading; reuse the node instead of duplicating it.
         key = (parent_id, label.lower())
         if key in self._existing:
@@ -315,7 +318,7 @@ class _Outline:
         self._sort += 1
         cur = self._con.execute(
             "INSERT INTO toc_nodes(parent_id, category, kind, label, sort_order) VALUES (?, ?, ?, ?, ?)",
-            (parent_id, category, kind, label, self._sort),
+            (parent_id, category, kind, label, self._sort if sort_order is None else sort_order),
         )
         self._existing[key] = int(cur.lastrowid)
         return self._existing[key]
@@ -498,11 +501,48 @@ def _merge_existing_index(con: sqlite3.Connection, index_path: Path) -> int:
     return inserted
 
 
-def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_index: Path | None) -> int:
+_Bundle = tuple[Path, str, str, list[object]]  # (directory, category, bundle name, entries)
+
+LAW_PACK_ID = "louisiana-law"
+_YEAR_RE = re.compile(r"(?<!\d)(1[89]\d\d|20\d\d)(?!\d)")
+
+
+def _read_bundles(out_dir: Path) -> list[_Bundle]:
     bundle_paths = _find_bundle_paths(out_dir)
     if not bundle_paths:
         raise RuntimeError(f"No bundle.json files found under {out_dir}")
+    bundles: list[_Bundle] = []
+    for bundle_path in bundle_paths:
+        bundle = _read_json(bundle_path)
+        category = str(bundle.get("category_name") or "").strip()
+        bundle_name = str(bundle.get("bundle_name") or bundle_path.parent.name).strip()
+        entries = bundle.get("entries") or []
+        if not category or not isinstance(entries, list):
+            continue
+        bundles.append((bundle_path.parent, category, bundle_name, entries))
+    return bundles
 
+
+def _bundle_year(bundle_name: str) -> int:
+    m = _YEAR_RE.search(bundle_name)
+    return int(m.group(1)) if m else 0
+
+
+def _newest_first_rank(year: int, position: int) -> int:
+    """Sort key that orders year/session bundles newest-first the same way in every pack."""
+    return (9999 - year) * 1000 + position
+
+
+def _build_db(
+    out_dir: Path,
+    db_path: Path,
+    bundles: list[_Bundle],
+    metadata: dict[str, str],
+    *,
+    slim: bool,
+    existing_index: Path | None = None,
+) -> int:
+    """Build one library database from the given bundles. slim=True omits stored HTML (for packs)."""
     tmp_path = db_path.with_name(db_path.name + ".building")
     for path in [tmp_path, tmp_path.with_name(tmp_path.name + "-wal"), tmp_path.with_name(tmp_path.name + "-shm")]:
         if path.exists():
@@ -514,19 +554,9 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
     try:
         _schema(con)
         with con:
-            _insert_metadata(con, "dataset_version", dataset_version)
+            for key, value in metadata.items():
+                _insert_metadata(con, key, value)
             _insert_metadata(con, "built_at_epoch", str(int(time.time())))
-            _insert_metadata(con, "source_out_dir", str(out_dir.resolve()))
-
-            bundles: list[tuple[Path, str, str, list[object]]] = []
-            for bundle_path in bundle_paths:
-                bundle = _read_json(bundle_path)
-                category = str(bundle.get("category_name") or "").strip()
-                bundle_name = str(bundle.get("bundle_name") or bundle_path.parent.name).strip()
-                entries = bundle.get("entries") or []
-                if not category or not isinstance(entries, list):
-                    continue
-                bundles.append((bundle_path.parent, category, bundle_name, entries))
 
             def _category_key(name: str) -> tuple[int, str]:
                 rank = CATEGORY_ORDER.index(name) if name in CATEGORY_ORDER else len(CATEGORY_ORDER)
@@ -539,23 +569,34 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
 
             doc_sort = 0
             for category in sorted(by_category, key=_category_key):
+                newest_first = category in NEWEST_FIRST_CATEGORIES
                 category_bundles = sorted(by_category[category], key=lambda item: _natural_key(item[1]))
-                if category in NEWEST_FIRST_CATEGORIES:
+                if newest_first:
                     # Newest year/session first, but keep the parts within a session in order.
                     category_bundles.sort(key=lambda item: _natural_key(item[1].partition(" - ")[0]), reverse=True)
-                category_node = outline.add(None, category, "source", category)
+                # Sources are siblings across packs, so their order comes from the fixed category list.
+                category_node = outline.add(None, category, "source", category, sort_order=_category_key(category)[0])
+                group_positions: dict[str, int] = {}
+                parts_in_group: dict[str, int] = {}
 
                 for bundle_dir, bundle_name, entries in category_bundles:
+                    group = bundle_name.partition(" - ")[0]
+                    position = group_positions.setdefault(group, len(group_positions))
+                    part = parts_in_group[group] = parts_in_group.get(group, -1) + 1  # House, Senate, ...
+                    rank = _newest_first_rank(_bundle_year(group), position) if newest_first else None
                     # A flat source (one bundle named like the source) needs no extra level.
                     if bundle_name == category:
                         bundle_node = category_node
                     elif category in GROUPED_BUNDLE_CATEGORIES and " - " in bundle_name:
                         # "2025 Regular Session - House Bills" -> 2025 Regular Session > House Bills
-                        group, _, leaf = bundle_name.partition(" - ")
-                        group_node = outline.add(category_node, category, "bundle", group)
+                        _, _, leaf = bundle_name.partition(" - ")
+                        group_node = outline.add(category_node, category, "bundle", group, sort_order=rank)
                         bundle_node = outline.add(group_node, category, "bundle", leaf)
                     else:
-                        bundle_node = outline.add(category_node, category, "bundle", _bundle_label(bundle_name))
+                        bundle_node = outline.add(category_node, category, "bundle", _bundle_label(bundle_name), sort_order=rank)
+                    if newest_first:
+                        # Reading order must line up across packs built separately.
+                        doc_sort = (rank * 10 + part) * 100_000
                     open_divisions: list[tuple[int, int]] = []  # (rank, node id)
 
                     for entry in entries:
@@ -574,8 +615,8 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
                             text = _clean_act_text(text)
 
                         headings, heading_lines = _leading_headings(str(meta.get("doc_html") or ""))
-                        for rank, label in headings:
-                            while open_divisions and open_divisions[-1][0] >= rank:
+                        for heading_rank, label in headings:
+                            while open_divisions and open_divisions[-1][0] >= heading_rank:
                                 open_divisions.pop()
                             if (
                                 not open_divisions
@@ -583,10 +624,10 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
                                 and _same_division(label, bundle_name)
                             ):
                                 # "TITLE 1 GENERAL PROVISIONS" inside bundle "TITLE 1 - General Provisions".
-                                open_divisions.append((rank, bundle_node))
+                                open_divisions.append((heading_rank, bundle_node))
                                 continue
                             parent = open_divisions[-1][1] if open_divisions else bundle_node
-                            open_divisions.append((rank, outline.add(parent, category, "division", label)))
+                            open_divisions.append((heading_rank, outline.add(parent, category, "division", label)))
                         doc_sort += 1
 
                         url = str(meta.get("url") or entry.get("url") or "").strip()
@@ -598,7 +639,9 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
                         chamber = str(meta.get("chamber_label") or meta.get("chamber") or "").strip()
                         status_group = str(meta.get("bill_status_group") or "").strip()
                         status_label = str(meta.get("bill_status_label") or "").strip()
-                        local_file = str(meta.get("local_file") or "").strip()
+                        if slim:
+                            # The reader works from plain text; the HTML copies triple the size.
+                            meta = {k: v for k, v in meta.items() if k not in ("doc_html", "doc_text")}
                         total += _insert_document(
                             con,
                             category=category,
@@ -612,9 +655,9 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
                             chamber=chamber,
                             status_group=status_group,
                             status_label=status_label,
-                            local_file=local_file,
+                            local_file="" if slim else str(meta.get("local_file") or "").strip(),
                             metadata=meta,
-                            source_path=str(meta_path.relative_to(out_dir)) if meta_path.exists() else "",
+                            source_path="" if slim or not meta_path.exists() else str(meta_path.relative_to(out_dir)),
                             toc_node_id=open_divisions[-1][1] if open_divisions else bundle_node,
                             sort_order=doc_sort,
                             heading_lines=heading_lines,
@@ -630,6 +673,9 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
 
         con.execute("PRAGMA optimize;")
         con.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        con.execute("PRAGMA journal_mode = DELETE;")
+        if slim:
+            con.execute("VACUUM;")
     finally:
         con.close()
 
@@ -643,17 +689,179 @@ def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_i
     return total
 
 
+def build_dataset(out_dir: Path, db_path: Path, dataset_version: str, existing_index: Path | None) -> int:
+    """Build the single all-in-one library (development and the API)."""
+    return _build_db(
+        out_dir,
+        db_path,
+        _read_bundles(out_dir),
+        {"dataset_version": dataset_version, "source_out_dir": str(out_dir.resolve())},
+        slim=False,
+        existing_index=existing_index,
+    )
+
+
+PACK_FORMAT = 1
+BILLS_CATEGORY = "Louisiana Legislative Bills"
+COURT_CATEGORY = "Louisiana Supreme Court Decisions"
+
+
+def _pack_for(category: str, bundle_name: str) -> tuple[str, dict[str, object]]:
+    """Which downloadable pack a bundle belongs to, and how the Library Manager describes it."""
+    if category == BILLS_CATEGORY:
+        year = _bundle_year(bundle_name)
+        return f"bills-{year}", {
+            "title": f"Legislative Bills, {year}",
+            "group": "Legislative Bills",
+            "description": f"Bills and resolutions from the {year} sessions: histories, votes, documents, and enacted act text.",
+            "year": year,
+        }
+    if category == COURT_CATEGORY:
+        decade = _bundle_year(bundle_name) // 10 * 10
+        return f"supreme-court-{decade}s", {
+            "title": f"Supreme Court Decisions, {decade}s",
+            "group": "Supreme Court Decisions",
+            "description": f"Louisiana Supreme Court opinions from {decade} to {decade + 9}.",
+            "year": decade,
+        }
+    return LAW_PACK_ID, {
+        "title": "Louisiana Law",
+        "group": "Louisiana Law",
+        "description": "The Constitution, Civil Code, Revised Statutes, codes of procedure and evidence, Children's Code, and legislative rules.",
+        "required": True,
+    }
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _content_fingerprint(db_path: Path) -> str:
+    """
+    Hash of what a reader sees (documents and outline), ignoring build stamps, so republishing an
+    unchanged pack is a no-op and users only get updates when the law actually changed.
+    """
+    digest = hashlib.sha256()
+    con = sqlite3.connect(db_path)
+    try:
+        for row in con.execute(
+            "SELECT category, bundle, citation, title, text, url, status_label, heading_lines, sort_order FROM documents ORDER BY document_key"
+        ):
+            digest.update(repr(row).encode("utf-8"))
+        for row in con.execute("SELECT parent_id, kind, label, sort_order FROM toc_nodes ORDER BY id"):
+            digest.update(repr(row).encode("utf-8"))
+    finally:
+        con.close()
+    return digest.hexdigest()
+
+
+def build_packs(out_dir: Path, packs_dir: Path, version: str, only: set[str] | None = None) -> list[dict[str, object]]:
+    """
+    Build downloadable content packs: one SQLite file per pack, without the search index
+    (the app builds it locally in seconds), Brotli-compressed, plus a packs.json manifest.
+    """
+    import brotli
+
+    grouped: dict[str, tuple[dict[str, object], list[_Bundle]]] = {}
+    for bundle in _read_bundles(out_dir):
+        pack_id, info = _pack_for(bundle[1], bundle[2])
+        grouped.setdefault(pack_id, (info, []))[1].append(bundle)
+
+    packs_dir.mkdir(parents=True, exist_ok=True)
+    entries: list[dict[str, object]] = []
+    for pack_id, (info, bundles) in sorted(grouped.items()):
+        if only and pack_id not in only:
+            continue
+        db_path = packs_dir / f"{pack_id}.sqlite"
+        metadata = {
+            "pack_id": pack_id,
+            "pack_title": str(info["title"]),
+            "pack_version": version,
+            "pack_format": str(PACK_FORMAT),
+            "dataset_version": version,
+        }
+        count = _build_db(out_dir, db_path, bundles, metadata, slim=True)
+        con = sqlite3.connect(db_path)
+        con.execute("DROP TABLE documents_fts")
+        con.execute("VACUUM")
+        con.close()
+        fingerprint = _content_fingerprint(db_path)
+
+        raw = db_path.read_bytes()
+        archive = packs_dir / f"{pack_id}.sqlite.br"
+        archive.write_bytes(brotli.compress(raw, quality=9, lgwin=24))
+        db_path.unlink()
+        entry = {
+            "id": pack_id,
+            **info,
+            "version": version,
+            "file": archive.name,
+            "bytes": archive.stat().st_size,
+            "uncompressed_bytes": len(raw),
+            "sha256": _sha256(archive),
+            "content_sha256": fingerprint,
+            "documents": count,
+        }
+        entries.append(entry)
+        print(f"[pack] {pack_id}: {count:,} documents, {entry['bytes'] / 1e6:.1f} MB")
+    return entries
+
+
+def write_manifest(packs_dir: Path, entries: list[dict[str, object]], base_url: str) -> Path:
+    """Write packs.json, keeping entries for packs that were not rebuilt this time."""
+    manifest_path = packs_dir / "packs.json"
+    existing = _read_json(manifest_path).get("packs") if manifest_path.exists() else None
+    by_id = {str(p["id"]): p for p in existing or [] if isinstance(p, dict)}
+    for entry in entries:
+        by_id[str(entry["id"])] = {**entry, "url": f"{base_url.rstrip('/')}/{entry['file']}"}
+
+    def order(pack: dict[str, object]) -> tuple[int, int, str]:
+        group_rank = {"Louisiana Law": 0, "Legislative Bills": 1, "Supreme Court Decisions": 2}.get(str(pack.get("group")), 9)
+        return group_rank, -int(pack.get("year") or 0), str(pack["id"])
+
+    manifest = {
+        "format": PACK_FORMAT,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "packs": sorted(by_id.values(), key=order),
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return manifest_path
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="out", help="Generated downloader output root")
     parser.add_argument("--db", default="data/bayoulex-content.sqlite", help="Output SQLite database")
     parser.add_argument("--dataset-version", default=time.strftime("%Y%m%d"), help="Immutable dataset version label")
+    parser.add_argument("--packs", metavar="DIR", default=None, help="Build downloadable content packs into DIR instead of one database")
+    parser.add_argument("--only", default="", help="With --packs: comma-separated pack ids to rebuild (default: all)")
+    parser.add_argument(
+        "--base-url",
+        default="https://github.com/vincentlarkin/BayouLex/releases/download/library",
+        help="With --packs: where the pack files will be published",
+    )
     parser.add_argument(
         "--existing-index",
         default=None,
         help="Existing docs_fts SQLite index to merge for content not present in sidecar files (default: <out>/index.sqlite when present)",
     )
     args = parser.parse_args(argv)
+
+    if args.packs:
+        try:
+            version = time.strftime("%Y%m%d.%H%M", time.gmtime())
+            only = {item.strip() for item in args.only.split(",") if item.strip()} or None
+            entries = build_packs(Path(args.out), Path(args.packs), version, only)
+            manifest = write_manifest(Path(args.packs), entries, args.base_url)
+        except Exception as exc:
+            print(f"[error] {exc}", file=sys.stderr)
+            return 1
+        print(f"[ok] built {len(entries)} pack(s) -> {manifest}")
+        return 0
 
     try:
         out_dir = Path(args.out)

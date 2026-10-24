@@ -9,7 +9,8 @@ public static class AppPaths
             ? custom
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BayouLex");
 
-    public static string DefaultLibraryPath => Path.Combine(DataDirectory, "bayoulex-content.sqlite");
+    /// <summary>The library that installed content packs are merged into.</summary>
+    public static string ManagedLibraryPath => Path.Combine(DataDirectory, "library.sqlite");
 
     public static string UserDatabasePath => Path.Combine(DataDirectory, "user.sqlite");
 
@@ -22,6 +23,7 @@ public sealed class AppSettings
 
     public string? LibraryPath { get; set; }
     public double ReaderFontSize { get; set; } = 17;
+    public bool WizardShown { get; set; }
 
     public static AppSettings Load()
     {
@@ -45,17 +47,16 @@ public sealed class AppSettings
         File.WriteAllText(AppPaths.SettingsPath, JsonSerializer.Serialize(this, JsonOptions));
     }
 
-    /// <summary>BAYOULEX_LIBRARY wins, then the last library opened, then the default location.</summary>
-    public string ResolveLibraryPath()
+    /// <summary>
+    /// A specific library file to open instead of the managed pack library: BAYOULEX_LIBRARY, or one
+    /// chosen with File › Open Library File. Null means use the managed library.
+    /// </summary>
+    public string? ExplicitLibraryPath()
     {
         if (Environment.GetEnvironmentVariable("BAYOULEX_LIBRARY") is { Length: > 0 } fromEnv)
         {
             return fromEnv;
         }
-        if (!string.IsNullOrWhiteSpace(LibraryPath) && File.Exists(LibraryPath))
-        {
-            return LibraryPath;
-        }
-        return AppPaths.DefaultLibraryPath;
+        return !string.IsNullOrWhiteSpace(LibraryPath) && File.Exists(LibraryPath) ? LibraryPath : null;
     }
 }

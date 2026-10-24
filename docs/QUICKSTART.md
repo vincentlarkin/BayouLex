@@ -1,113 +1,50 @@
 # BayouLex Quickstart
 
-## Start Here
+## Using the app
 
-Prerequisites:
+1. Download BayouLex for your system from the repository's Releases and run `bayoulex`.
+2. Louisiana Law is set up on first launch (it ships inside the app), so the library
+   works offline right away.
+3. The welcome window offers Legislative Bills (one pack per year) and Supreme Court
+   Decisions (one pack per decade). Pick what you want; change it later from
+   **File › Library Manager**.
+4. When newer packs are published, the status bar shows **Updates available**.
 
-- Python with the dependencies from `requirements.txt`
-- A normal installed .NET SDK available as `dotnet` on PATH
+Getting around: Ctrl+G jumps to a citation (`R.S. 9:2800`, `C.C. art. 2315`,
+`Const. art. I, §2`, `HB 1`), Ctrl+F searches everything, Alt+←/→ go back and forward,
+Alt+↑/↓ step through sections, Ctrl+D bookmarks, Ctrl+click opens a citation in a new tab.
 
-On Linux/macOS, run the same menu with `.venv/bin/python
-scripts/bayoulex_compendium.py`. Per-user data (bookmarks, history, settings)
-is stored in `~/.local/share/BayouLex/` instead of `%LOCALAPPDATA%\BayouLex\`.
+## Working on the content
 
-Use the compendium menu instead of remembering script flags:
+Prerequisites: Python with `requirements.txt` installed, and the .NET 10 SDK as `dotnet`.
 
-```powershell
-python scripts\bayoulex_compendium.py
+Everything is reachable from the compendium menu:
+
+```bash
+python scripts/bayoulex_compendium.py      # .venv/bin/python on Linux/macOS
 ```
 
-From there you can download/build from source, package offline chunks from the
-current dataset, download offline chunks from an API, run a local API smoke
-server, and launch the BayouLex desktop app.
+- **1. Download from source and build everything**: fetches the official material into
+  `out/`, then builds `data/bayoulex-content.sqlite` and the content packs in `packs/`.
+  The Supreme Court step is rate-limited by Justia; if it stops early the rest still
+  builds, and re-running later fills in the missing years.
+- **2. Build content packs**: rebuilds `packs/` from what is already in `out/`.
+- **3. Publish content packs**: previews, then uploads changed packs to the `library`
+  GitHub release that the app downloads from.
+- **4. Run the desktop app**: the Library Manager installs from your local `packs/`.
 
-The legacy Python GUI/search tools are intentionally not on this refactor
-branch. They are preserved on the pushed `legacy` branch.
+## How the pieces fit
 
-## How The API Gets Its Data
+- `out/`: the downloaded source corpus (one folder per code, session, or year).
+- `packs/`: what users install. Each pack is a compressed SQLite file without a
+  search index; the app indexes it on install in seconds.
+- The **Library packs** GitHub workflow refreshes this year's bills daily and the codes
+  weekly, publishing only packs whose content changed.
+- The **App release** workflow builds Windows, Linux, and macOS downloads when a `v*`
+  tag is pushed, with the current Louisiana Law pack inside.
 
-The API does not scrape websites while users search.
+## The API
 
-The data flow is:
-
-1. The compendium/downloader workflow fetches Louisiana legal source material
-   into local generated files under `out/`.
-2. The dataset builder converts that corpus into one canonical SQLite file:
-   `data/bayoulex-content.sqlite`.
-3. The offline packager optionally compresses and chunks that SQLite file under
-   `data/offline/<version>/`.
-4. The API container mounts those files read-only and serves search/detail
-   responses from SQLite.
-
-So the API serves a prepared dataset. It is not continuously changing the
-content in the background.
-
-## What Offline Adds
-
-Offline chunks do not add more legal content. They are a downloadable copy of
-the same SQLite dataset, split into verified pieces so the Windows app can keep
-working later without the API server.
-
-If `data/bayoulex-content.sqlite` exists but `data/offline/` is missing, you can
-still run the API and search through the C# app. You only need offline chunks
-when testing `Download Data for Offline` or serving offline downloads from
-`api.ladf.us`.
-
-To create chunks from the dataset you already have:
-
-```powershell
-python scripts\bayoulex_compendium.py
-```
-
-Choose `Build offline package from current dataset`.
-
-## Does The API Run Continuously?
-
-Two separate things exist:
-
-- The API server runs continuously as a small read-only web service.
-- The data refresh/build workflow runs only when you choose to refresh content,
-  or later on a schedule if you want that.
-
-On TrueNAS, the API should run as a custom Docker app. It opens the prepared
-SQLite dataset read-only. To update content, build a new dataset on a dev/build
-machine, copy it to the NAS data directory, and restart or reload the API
-container.
-
-## Local Smoke Test
-
-Start the local API smoke server:
-
-```powershell
-python scripts\bayoulex_compendium.py
-```
-
-Choose `Run local API smoke server`.
-
-Opening either of these URLs in a browser should now show JSON instead of a
-plain 404:
-
-```text
-http://127.0.0.1:5087/
-http://127.0.0.1:5087/bayoulex/v1/
-```
-
-Direct commands, if you do want them for troubleshooting:
-
-```powershell
-$env:BAYOULEX_DATASET_PATH=(Resolve-Path data\bayoulex-content.sqlite).Path
-$env:BAYOULEX_OFFLINE_ROOT=(Resolve-Path data\offline).Path
-$env:BAYOULEX_PUBLIC_BASE_URL='http://127.0.0.1:5087/bayoulex/v1'
-dotnet run --project src\BayouLex.Api\BayouLex.Api.csproj --urls http://127.0.0.1:5087
-```
-
-## What Goes On The NAS
-
-For `api.ladf.us`, the NAS needs only the deployed API container plus the
-prepared data files. The source download/build process should happen on a dev or
-build machine so the NAS stays simple.
-
-- Cloudflare Tunnel sends `api.ladf.us` traffic to NGINX.
-- NGINX proxies only the BayouLex API route to the API container.
-- The API opens `bayoulex-content.sqlite` read-only.
-- Offline downloads are served as fixed chunks with hashes and ETags.
+`src/BayouLex.Api` is an optional read-only HTTP API over `data/bayoulex-content.sqlite`
+(compendium option 5 runs it locally on http://127.0.0.1:5087/bayoulex/v1/). The desktop
+app does not need it. See `docs/NAS_DEPLOYMENT.md` for hosting it.

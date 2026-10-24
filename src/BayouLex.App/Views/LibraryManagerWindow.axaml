@@ -1,0 +1,74 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BayouLex.App.ViewModels"
+        x:Class="BayouLex.App.Views.LibraryManagerWindow"
+        x:DataType="vm:LibraryManagerViewModel"
+        Title="{Binding Heading}"
+        Icon="/Assets/bayoulex-brand.png"
+        Width="760" Height="680" MinWidth="560" MinHeight="420"
+        WindowStartupLocation="CenterOwner">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Classes="caption" Padding="14,8">
+      <TextBlock Text="{Binding Heading}" FontSize="16" />
+    </Border>
+
+    <Border DockPanel.Dock="Top" Padding="16,10,16,6">
+      <TextBlock Text="{Binding Intro}" TextWrapping="Wrap" />
+    </Border>
+
+    <!-- Progress and buttons -->
+    <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource ShadowBrush}" BorderThickness="0,1,0,0" Padding="16,10">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+          <Button Classes="push" Content="Cancel" IsVisible="{Binding IsWorking}" Command="{Binding CancelCommand}" />
+          <Button Classes="push" Content="Apply" IsDefault="True" Command="{Binding ApplyCommand}" />
+          <Button Classes="push" Content="Close" IsCancel="True" IsEnabled="{Binding !IsWorking}" Click="Close_Click" />
+        </StackPanel>
+        <StackPanel Spacing="4" Margin="0,0,16,0">
+          <TextBlock Text="{Binding SelectionSummary}" Classes="muted" />
+          <ProgressBar Height="14" Minimum="0" Maximum="100" Value="{Binding Progress}" IsVisible="{Binding IsWorking}" />
+          <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- Packs -->
+    <Border Classes="sunken" Margin="16,4,16,10">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <ItemsControl ItemsSource="{Binding Groups}" Margin="12,8">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:PackGroupViewModel">
+              <StackPanel Margin="0,4,0,14" Spacing="4">
+                <DockPanel>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" IsVisible="{Binding HasYears}">
+                    <Button Classes="tool" Content="Latest" Command="{Binding SelectLatestCommand}" />
+                    <Button Classes="tool" Content="Last 5" Command="{Binding SelectRecentCommand}" />
+                    <Button Classes="tool" Content="All" Command="{Binding SelectAllCommand}" />
+                    <Button Classes="tool" Content="None" Command="{Binding SelectNoneCommand}" />
+                  </StackPanel>
+                  <TextBlock Text="{Binding Title}" FontFamily="{StaticResource ReaderFont}" FontSize="18" FontWeight="SemiBold"
+                             Foreground="{StaticResource BayouDeepBrush}" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock Text="{Binding Description}" Classes="muted small" TextWrapping="Wrap" />
+                <Border Height="1" Background="{StaticResource GoldBrush}" Margin="0,2,0,2" />
+                <ItemsControl ItemsSource="{Binding Items}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PackItemViewModel">
+                      <Grid ColumnDefinitions="Auto,*,150,170" Margin="0,1">
+                        <CheckBox Grid.Column="0" IsChecked="{Binding IsChecked}" IsEnabled="{Binding CanToggle}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding Title}" VerticalAlignment="Center" Margin="4,0,0,0" />
+                        <TextBlock Grid.Column="2" Text="{Binding Status}" VerticalAlignment="Center" Classes="small"
+                                   Foreground="{StaticResource BayouBrush}" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="{Binding Detail}" VerticalAlignment="Center" Classes="small muted" HorizontalAlignment="Right" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+  </DockPanel>
+</Window>

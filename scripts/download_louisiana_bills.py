@@ -248,6 +248,10 @@ def _resolve_session_args(raw_session: str) -> list[tuple[str, str]]:
     by_id = {session_id.upper(): (session_id, name) for session_id, name in available}
     if raw_session.casefold() == "all":
         return available
+    # "2026" or "current": every session (regular, extraordinary, veto) held that year.
+    if raw_session.casefold() == "current" or re.fullmatch(r"(19|20)\d\d", raw_session):
+        year = _dt.datetime.now().year if raw_session.casefold() == "current" else int(raw_session)
+        return [item for item in available if _session_year_from_id(item[0]) == year]
 
     out: list[tuple[str, str]] = []
     for part in re.split(r"[,;]\s*", raw_session):
@@ -704,7 +708,11 @@ def _parse_document_statuses(raw: str) -> set[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--session", default="25RS", help="Legislative session id, comma list, or all (default: 25RS)")
+    parser.add_argument(
+        "--session",
+        default="25RS",
+        help="Session id or comma list (25RS,251ES), a year (2025), 'current' (this year's sessions), or 'all' (default: 25RS)",
+    )
     parser.add_argument("--out", default="out", help="Output root (default: out)")
     parser.add_argument("--workers", type=int, default=8, help="Parallel bill page fetches (default: 8)")
     parser.add_argument("--max-bills", type=int, default=0, help="Development limit; 0 downloads all")

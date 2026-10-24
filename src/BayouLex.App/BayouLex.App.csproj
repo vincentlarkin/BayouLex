@@ -23,4 +23,11 @@
     <AvaloniaResource Include="..\..\assets\branding\bayoulex-brand.png" Link="Assets\bayoulex-brand.png" />
     <AvaloniaResource Include="..\..\assets\fonts\*.ttf" Link="Assets\Fonts\%(Filename)%(Extension)" />
   </ItemGroup>
+
+  <!-- Ship the Louisiana Law pack with the app so a fresh install works offline. Build it with
+       scripts/build_bayoulex_dataset.py with the packs option; other packs download on demand. -->
+  <ItemGroup Condition="Exists('..\..\packs\louisiana-law.sqlite.br')">
+    <None Include="..\..\packs\louisiana-law.sqlite.br" Link="packs\louisiana-law.sqlite.br" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\packs\packs.json" Link="packs\packs.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

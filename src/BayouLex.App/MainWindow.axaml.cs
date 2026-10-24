@@ -23,6 +23,7 @@ public partial class MainWindow : Window, IShell
         InitializeComponent();
         ViewModel = new MainViewModel(this);
         DataContext = ViewModel;
+        Opened += async (_, _) => await ViewModel.InitializeAsync();
 
         ContentsTree.SelectionChanged += (_, _) =>
         {
@@ -155,6 +156,14 @@ public partial class MainWindow : Window, IShell
     }, DispatcherPriority.Loaded);
 
     public void CloseWindow() => Close();
+
+    public async Task ShowLibraryManagerAsync(LibraryManagerViewModel manager)
+    {
+        var window = new Views.LibraryManagerWindow { DataContext = manager };
+        var showing = window.ShowDialog(this);
+        await manager.LoadAsync();
+        await showing;
+    }
 
     public Task ShowAboutAsync()
     {
