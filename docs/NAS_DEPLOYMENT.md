@@ -1,4 +1,4 @@
-# BayouLex TrueNAS Deployment Notes
+# BayouLex Server Deployment Notes
 
 ## Shape
 
@@ -39,7 +39,7 @@ The root `.dockerignore` intentionally excludes `out/`, `data/`, `build/`, and
 
 ## NGINX
 
-Use `deploy/nginx/api.ladf.us.conf` as the starting point. If your TrueNAS NGINX
+Use `deploy/nginx/api.ladf.us.conf` as the starting point. If your NGINX
 app separates `http{}` and `server{}` includes, put the `limit_req_zone` lines in
 the `http{}` include and keep the `server{}` block in the site config.
 

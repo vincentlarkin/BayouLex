@@ -12,7 +12,7 @@
 
 - Build one canonical SQLite content database from the current corpus on a dev/build machine, not the NAS.
 - Keep Python downloaders as source ingestion tooling for v1; generated per-document files become build inputs, not committed/runtime files.
-- API stack: ASP.NET Core Minimal API in a TrueNAS custom Docker app.
+- API stack: ASP.NET Core Minimal API in a custom Docker app on the server.
 - Public read-only endpoints:
   - `GET /bayoulex/v1/init`
   - `GET /bayoulex/v1/catalog`
@@ -52,7 +52,7 @@
 
 - Use existing Cloudflare Tunnel and NGINX setup.
 - NGINX proxies `api.ladf.us` to the API container; API is not directly exposed.
-- Keep TrueNAS host changes minimal; if SSH is needed, inspect read-only first and use non-root key-based access.
+- Keep host changes minimal; if SSH is needed, inspect read-only first and use non-root key-based access.
 - NGINX handles TLS edge, request size limits, chunk download throttling, and basic abuse controls.
 - API has no write/admin routes and opens SQLite read-only.
 
@@ -69,4 +69,4 @@
 - Target desktop app is Windows-first WPF.
 - API/default mode is public read-only.
 - Offline full-content download is optional and throttled to protect the NAS.
-- Implementation uses a .NET SDK on the dev machine; TrueNAS runs only the built container.
+- Implementation uses a .NET SDK on the dev machine; the server runs only the built container.
